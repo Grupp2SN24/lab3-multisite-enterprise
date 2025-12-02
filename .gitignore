@@ -1,0 +1,32 @@
+# GNS3
+*.gns3project
+*.gns3project.lock
+project-files/dynamips/
+project-files/vpcs/
+
+# Puppet
+*.lock
+Puppetfile.lock
+.tmp/
+
+# System
+.DS_Store
+*.swp
+*~
+.vagrant/
+
+# Credentials
+*.key
+*.pem
+secrets.yaml
+*_rsa
+*_rsa.pub
+
+# Temp
+*.tmp
+/tmp/
+.cache/
+
+# IDE
+.vscode/
+.idea/
