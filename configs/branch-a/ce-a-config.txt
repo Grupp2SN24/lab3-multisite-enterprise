@@ -1,0 +1,46 @@
+hostname CE-A
+
+interface Loopback0
+ ip address 1.1.1.10 255.255.255.255
+
+vrf definition MGMT
+ rd 65000:10
+ address-family ipv4
+ exit-address-family
+
+vrf definition USER
+ rd 65000:30
+ address-family ipv4
+ exit-address-family
+
+interface GigabitEthernet0/0
+ description Link to PE-A
+ ip address 192.168.101.1 255.255.255.252
+ no shutdown
+
+interface GigabitEthernet0/1
+ description MGMT VRF
+ vrf forwarding MGMT
+ ip address 10.0.1.1 255.255.255.0
+ no shutdown
+
+interface GigabitEthernet0/2
+ description USER VRF
+ vrf forwarding USER
+ ip address 10.20.1.1 255.255.255.0
+ no shutdown
+
+ip route 10.0.1.0 255.255.255.0 Null0
+ip route 10.20.1.0 255.255.255.0 Null0
+
+router bgp 65000
+ bgp router-id 1.1.1.10
+ bgp log-neighbor-changes
+ neighbor 192.168.101.2 remote-as 65001
+ neighbor 192.168.101.2 description PE-A
+ 
+ address-family ipv4
+  network 10.0.1.0 mask 255.255.255.0
+  network 10.20.1.0 mask 255.255.255.0
+  neighbor 192.168.101.2 activate
+ exit-address-family
