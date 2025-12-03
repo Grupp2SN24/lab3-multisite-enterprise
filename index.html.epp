@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Lab 3 - <%= $facts['networking']['hostname'] %></title>
+    <style>
+        body { font-family: Arial; text-align: center; margin-top: 50px; }
+        h1 { color: #0066cc; }
+    </style>
+</head>
+<body>
+    <h1>Lab 3 Multi-Site Enterprise Network</h1>
+    <h2>Server: <%= $facts['networking']['hostname'] %></h2>
+    <p>IP: <%= $facts['networking']['ip'] %></p>
+    <p>Served via HAProxy Load Balancer</p>
+</body>
+</html>
