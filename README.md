@@ -16,13 +16,12 @@ Bygga ett komplett multi-site enterprise-nätverk med:
 
 | Namn | Roll | Ansvar |
 |------|------|--------|
-| **Anton** 🔴 | Team Lead & DC Routing | Datacenter edge, VRFs, BGP policy |
-| **Fredrik** 🟠 | Network Architect | Provider core, GNS3 topology |
-| **Taro** 🟠 | DevOps Engineer | Puppet infrastructure, automation |
-| **Asal** 🟡 | Services Engineer | HAProxy, Apache, Terminal servers |
-| **Chinenye** 🟢 | Branch Engineer | Branch sites, thin clients |
+| **Anton** | Team Lead & DC Routing | Datacenter edge, VRFs, BGP policy |
+| **Fredrik**| Network Architect | Provider core, GNS3 topology |
+| **Taro**| DevOps Engineer | Puppet infrastructure, automation |
+| **Asal**| Services Engineer | HAProxy, Apache, Terminal servers |
+| **Chinenye**| Branch Engineer | Branch sites, thin clients |
 
-**Svårighetsgrad**: 🔴 Svårast | 🟠 Svår | 🟡 Medel | 🟢 Lättast
 
 ## 📁 Repository-struktur
 ```
@@ -130,22 +129,6 @@ Se din personliga guide i `docs/guides/`:
 - **GitHub Issues**: För problem och blockers
 - **Pull Requests**: All kod via PR (code review)
 
-### Git Workflow
-```bash
-# Varje person arbetar i sin egen branch
-git checkout -b fredrik/provider-core
-git checkout -b anton/dc-routing
-git checkout -b taro/puppet-modules
-git checkout -b asal/services
-git checkout -b chinenye/branches
-
-# Commit-format
-[Fredrik] Added PE1 basic config
-[Anton] Configured MGMT VRF on CE-DC
-[Taro] Created puppet base profile
-[Asal] HAProxy VRRP configuration
-[Chinenye] CE-A eBGP to PE-A working
-```
 
 ### Dependencies
 ```
@@ -159,13 +142,6 @@ Asal (Services) ← deployar med Puppet
     ↓
 End-to-end test (alla tillsammans)
 ```
-
-## 📞 Kontakt
-
-- **GitHub**: [Grupp2SN24/lab3-multisite-enterprise](https://github.com/Grupp2SN24/lab3-multisite-enterprise)
-- **Team Lead**: Anton
-- **Questions?**: Skapa en Issue eller fråga i Discord/Slack
-
 ## 🎯 Milestones
 
 ### Vecka 1 (2-6 dec)
