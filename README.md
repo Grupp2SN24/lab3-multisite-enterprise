@@ -167,6 +167,3 @@ MIT License - se [LICENSE](LICENSE)
 
 ---
 
-**Last Updated**: 2 December 2024  
-**Version**: 1.0  
-**Status**: 🚧 Project kickoff - Ready to start!
