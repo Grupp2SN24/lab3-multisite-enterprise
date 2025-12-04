@@ -1,0 +1,25 @@
+systemctl status apache2
+default via 192.168.122.1 dev ens5 
+2.2.2.0/24 via 10.10.0.1 dev ens4 
+10.0.0.0/8 via 10.10.0.1 dev ens4 
+10.10.0.0/24 dev ens4 proto kernel scope link src 10.10.0.21 
+192.168.0.0/16 via 10.10.0.1 dev ens4 
+192.168.122.0/24 dev ens5 proto kernel scope link src 192.168.122.141 
+● apache2.service - The Apache HTTP Server
+     Loaded: loaded (/lib/systemd/system/apache2.service; enabled; preset: enab>
+     Active: active (running) since Wed 2025-12-03 20:03:23 UTC; 17h ago
+       Docs: https://httpd.apache.org/docs/2.4/
+   Main PID: 1374 (apache2)
+      Tasks: 55 (limit: 1715)
+     Memory: 17.4M
+        CPU: 7.751s
+     CGroup: /system.slice/apache2.service
+             ├─1374 /usr/sbin/apache2 -k start
+             ├─1376 /usr/sbin/apache2 -k start
+             └─1377 /usr/sbin/apache2 -k start
+
+Dec 03 20:03:23 web-1 systemd[1]: Starting apache2.service - The Apache HTTP Se>
+Dec 03 20:03:23 web-1 apachectl[1373]: AH00558: apache2: Could not reliably det>
+Dec 03 20:03:23 web-1 systemd[1]: Started apache2.service - The Apache HTTP Ser>
+debian@debian:~$ 
+
