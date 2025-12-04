@@ -1,0 +1,68 @@
+!
+version 15.9
+hostname CE-DC
+!
+vrf definition MGMT
+ rd 65000:1
+ address-family ipv4
+ exit-address-family
+!
+vrf definition SERVICES
+ rd 65000:2
+ address-family ipv4
+ exit-address-family
+!
+vrf definition USER
+ rd 65000:3
+ address-family ipv4
+ exit-address-family
+!
+interface Loopback0
+ ip address 1.1.1.1 255.255.255.255
+!
+interface GigabitEthernet0/0
+ description SERVICES VRF Gateway
+ ip address 10.10.0.1 255.255.255.0
+!
+interface GigabitEthernet0/1
+ description Link to PE1
+ ip address 192.168.100.1 255.255.255.252
+!
+interface GigabitEthernet0/2
+ description Link to PE2
+ ip address 192.168.100.5 255.255.255.252
+!
+interface GigabitEthernet0/3
+ description MGMT VRF
+ vrf forwarding MGMT
+ ip address 10.0.0.1 255.255.255.0
+!
+router bgp 65000
+ bgp router-id 1.1.1.1
+ neighbor 192.168.100.2 remote-as 65001
+ neighbor 192.168.100.2 description PE1
+ neighbor 192.168.100.6 remote-as 65001
+ neighbor 192.168.100.6 description PE2
+ !
+ address-family ipv4
+  network 10.0.0.0 mask 255.255.255.0
+  network 10.10.0.0 mask 255.255.255.0
+  network 10.20.0.0 mask 255.255.255.0
+  redistribute connected
+  neighbor 192.168.100.2 activate
+  neighbor 192.168.100.6 activate
+ exit-address-family
+ !
+ address-family ipv4 vrf MGMT
+  redistribute connected
+ exit-address-family
+!
+ip route 2.2.2.0 255.255.255.0 192.168.100.2
+ip route 2.2.2.0 255.255.255.0 192.168.100.6 10
+ip route 10.0.0.0 255.255.255.0 Null0
+ip route 10.20.0.0 255.255.255.0 Null0
+ip route 10.255.0.0 255.255.0.0 192.168.100.2
+ip route 192.168.101.0 255.255.255.0 192.168.100.2
+ip route 192.168.102.0 255.255.255.0 192.168.100.2
+!
+end

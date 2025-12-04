@@ -1,172 +1,101 @@
 # Lab 3: Multi-Site Enterprise Network
 
-**Grupp 2 - SN24**
+## Grupp 2 SN24
 
-## 🎯 Projektmål
-
-Bygga ett komplett multi-site enterprise-nätverk med:
-- **3 sites**: 1 Datacenter + 2 Branch offices
-- **eBGP routing**: AS65000 ↔ AS65001
-- **VRF-segmentering**: MGMT, SERVICES, USER
-- **Redundans**: Dual-homed DC, VRRP, BFD
-- **Automation**: Full Puppet-orkestrering
-- **Services**: Load-balanced web, terminal servers
-
-## 👥 Team
-
-| Namn | Roll | Ansvar |
-|------|------|--------|
-| **Anton** | Team Lead & DC Routing | Datacenter edge, VRFs, BGP policy |
-| **Fredrik**| Network Architect | Provider core, GNS3 topology |
-| **Taro**| DevOps Engineer | Puppet infrastructure, automation |
-| **Asal**| Services Engineer | HAProxy, Apache, Terminal servers |
-| **Chinenye**| Branch Engineer | Branch sites, thin clients |
-
-
-## 📁 Repository-struktur
-```
-.
-├── docs/
-│   ├── architecture/        # IP-plan, topologi, BGP-policy
-│   ├── guides/             # Individuella arbetsguider
-│   └── team-assignments/   # Rollfördelning
-├── configs/
-│   ├── dc/                 # CE-DC configs (Anton)
-│   ├── branch-a/           # CE-A configs (Chinenye)
-│   ├── branch-b/           # CE-B configs (Chinenye)
-│   └── provider/           # PE configs (Fredrik)
-├── puppet/
-│   ├── manifests/          # site.pp (Taro)
-│   ├── modules/            # Custom modules (Taro)
-│   └── hieradata/          # Configuration data (Taro)
-├── scripts/
-│   ├── setup/              # Installation scripts
-│   ├── validation/         # Test scripts
-│   └── monitoring/         # Monitoring configs
-└── gns3/
-    ├── topology/           # GNS3 project files (Fredrik)
-    └── images/             # Router images info
-```
-
-## 🚀 Quick Start
-
-### För alla
-1. Klona repot: `git clone git@github.com:Grupp2SN24/lab3-multisite-enterprise.git`
-2. Läs [IP-adressplan](docs/architecture/ip-addressing.md)
-3. Läs [Team Roles](docs/team-assignments/TEAM-ROLES.md)
-
-### För din roll
-Se din personliga guide i `docs/guides/`:
-- **Fredrik**: [Provider Core Guide](docs/guides/fredrik-provider-core.md)
-- **Anton**: [DC Routing Guide](docs/guides/anton-dc-routing.md)
-- **Taro**: [Puppet Guide](docs/guides/taro-puppet.md)
-- **Asal**: [Services Guide](docs/guides/asal-services.md)
-- **Chinenye**: [Branches Guide](docs/guides/chinenye-branches.md)
-
-## 📊 Status
-
-| Component | Status | Owner | Progress |
-|-----------|--------|-------|----------|
-| Provider Core | ⏳ Not started | Fredrik | 0/5 tasks |
-| DC Routing | ⏳ Not started | Anton | 0/6 tasks |
-| Puppet Infrastructure | ⏳ Not started | Taro | 0/5 tasks |
-| Web Services | ⏳ Not started | Asal | 0/7 tasks |
-| Branch Sites | ⏳ Not started | Chinenye | 0/7 tasks |
-
-**Legend**: ⏳ Not started | 🚧 In progress | ✅ Complete
-
-## 🏗️ Arkitektur
-
-### Topologi
-```
-                Provider Core (AS65001)
-                /      |       \
-            PE1/      PE-A     PE-B
-              /        |         \
-          CE-DC      CE-A       CE-B
-          (DC)      (Br-A)     (Br-B)
-        Anton      Chinenye   Chinenye
-            |          |          |
-      VRF:MGMT      USER       USER
-      VRF:SERV      (thin)     (thin)
-      VRF:USER      client     client
-         |
-      Asal's
-     Services
-```
-
-### Komponenter
-- **7 routrar**: 3 CE (enterprise), 4 PE (provider)
-- **~17 servrar**: Puppet, HAProxy, Apache, Terminal, NFS, Thin clients
-- **3 VRFs**: Segmentering per trafiktyp
-
-### VRF Design
-| VRF | Syfte | Sites | Exempel |
-|-----|-------|-------|---------|
-| MGMT | Management, Puppet | DC, Br-A, Br-B | SSH, Puppet agents |
-| SERVICES | DC-tjänster | Endast DC | Web, Terminal, NFS |
-| USER | End-user access | DC, Br-A, Br-B | Thin clients |
-
-## 📚 Dokumentation
-
-- ✅ [IP-adressplan](docs/architecture/ip-addressing.md)
-- ✅ [Team Rollfördelning](docs/team-assignments/TEAM-ROLES.md)
-- ⏳ [BGP Policy](docs/architecture/bgp-policy.md) - *kommer snart*
-- ⏳ [Topologi](docs/architecture/topology.md) - *kommer snart*
-
-### Individuella guider
-- ⏳ [Fredrik: Provider Core](docs/guides/fredrik-provider-core.md)
-- ⏳ [Anton: DC Routing](docs/guides/anton-dc-routing.md)
-- ⏳ [Taro: Puppet](docs/guides/taro-puppet.md)
-- ⏳ [Asal: Services](docs/guides/asal-services.md)
-- ⏳ [Chinenye: Branches](docs/guides/chinenye-branches.md)
-
-## 🤝 Teamarbete
-
-### Communication
-- **Team Lead**: Anton (koordinering, tekniska beslut)
-- **Daily Standups**: 09:00 varje morgon (10 min)
-- **GitHub Issues**: För problem och blockers
-- **Pull Requests**: All kod via PR (code review)
-
-
-### Dependencies
-```
-Fredrik (Provider Core)
-    ↓ måste vara klar först
-Anton (DC Routing) 
-    ↓ VRFs måste finnas
-Taro (Puppet) + Chinenye (Branches) ← kan börja parallellt
-    ↓
-Asal (Services) ← deployar med Puppet
-    ↓
-End-to-end test (alla tillsammans)
-```
-## 🎯 Milestones
-
-### Vecka 1 (2-6 dec)
-- [ ] **Fredrik**: Provider core komplett, alla PE pratar iBGP
-- [ ] **Anton**: DC routing komplett, alla VRFs up
-- [ ] **Taro**: Puppet Master installerat och fungerande
-
-### Vecka 2 (9-13 dec)
-- [ ] **Taro**: Alla Puppet modules klara
-- [ ] **Asal**: Services deployade via Puppet
-- [ ] **Chinenye**: Branches konfigurerade, thin clients up
-
-### Vecka 3 (16-18 dec)
-- [ ] **Alla**: End-to-end test fungerande
-- [ ] **Anton + Taro**: Dokumentation och topologidiagram
-- [ ] **Alla**: Presentation och demo färdig
-
-**Deadline**: 18 December 2024
-
-## 📄 Licens
-
-MIT License - se [LICENSE](LICENSE)
+## Projektöversikt
+Automatiserad multi-site-lösning med DC och två branches (A/B).
 
 ---
 
-**Last Updated**: 2 December 2024  
-**Version**: 1.0  
-**Status**: 🚧 Project kickoff - Ready to start!
+## Topologi
+
+### Datacenter (DC) - SERVICES VRF (10.10.0.0/24)
+| Enhet | IP | OS | Tjänst |
+|-------|-----|-----|--------|
+| HAPROXY-1 | 10.10.0.10 | Debian 12 | HAProxy + VRRP Master |
+| HAPROXY-2 | 10.10.0.11 | Debian 12 | HAProxy + VRRP Backup |
+| **VIP** | 10.10.0.9 | - | Virtual IP (Load Balancer) |
+| Web-1 | 10.10.0.21 | Debian 12 | Apache2 |
+| Web-2 | 10.10.0.22 | Debian 12 | Apache2 |
+| Web-3 | 10.10.0.23 | Debian 12 | Apache2 |
+| Terminal-1 | 10.10.0.31 | AlmaLinux 9.4 | XRDP + NFS |
+| Terminal-2 | 10.10.0.32 | AlmaLinux 9.4 | XRDP + NFS |
+| NFS-Server | 10.10.0.40 | Debian 12 | NFS Server |
+
+### Datacenter (DC) - MGMT VRF (10.0.0.0/24)
+| Enhet | IP | OS | Tjänst |
+|-------|-----|-----|--------|
+| Puppet-Master | 10.0.0.10 | Debian 12 | Puppet Server |
+| CE-DC (Gi0/3) | 10.0.0.1 | Cisco IOSv | Gateway |
+
+### Routing - Enterprise AS65000
+| Router | Loopback | Kopplingar |
+|--------|----------|------------|
+| CE-DC | 1.1.1.1 | PE1, PE2 (dual-homed eBGP) |
+| CE-A | 1.1.1.10 | PE-A |
+| CE-B | 1.1.1.11 | PE-B |
+
+### Provider Core AS65001
+| Router | Loopback | Roll |
+|--------|----------|------|
+| PE1 | 2.2.2.1 | DC Provider Edge 1 |
+| PE2 | 2.2.2.2 | DC Provider Edge 2 |
+| PE-A | 2.2.2.10 | Branch A Provider Edge |
+| PE-B | 2.2.2.11 | Branch B Provider Edge |
+
+---
+
+## Tjänster
+
+### Load Balancing (HAProxy + VRRP)
+- **VIP:** 10.10.0.9
+- **Algoritm:** Round-robin
+- **Backends:** Web-1, Web-2, Web-3
+- **Failover:** Automatisk mellan HAPROXY-1 (Master) och HAPROXY-2 (Backup)
+
+### Terminal Servers (XRDP)
+- **Kapacitet:** 20 samtidiga användare (2 noder)
+- **Gemensam lagring:** NFS mount från 10.10.0.40
+- **Användare:** labuser / labpass123
+
+### NFS Server
+- **Export:** /srv/nfs/home
+- **Klienter:** 10.10.0.0/24
+
+---
+
+## Testkommandon
+```bash
+# Test load balancing (kör flera gånger)
+curl http://10.10.0.9
+
+# Test VRRP failover
+# På HAPROXY-1: sudo systemctl stop keepalived
+# VIP flyttar till HAPROXY-2
+
+# Test RDP till terminal server
+xfreerdp /v:10.10.0.31 /u:labuser /p:labpass123
+```
+
+---
+
+## Filstruktur
+```
+configs/
+├── dc/
+│   ├── routers/
+│   │   └── ce-dc-config.txt
+│   ├── services/
+│   │   ├── haproxy-1/etc/
+│   │   ├── haproxy-2/etc/
+│   │   ├── web-1/etc/
+│   │   ├── web-2/etc/
+│   │   ├── web-3/etc/
+│   │   ├── terminal-1/etc/
+│   │   ├── terminal-2/etc/
+│   │   └── nfs-server/etc/
+│   └── mgmt/
+│       └── puppet-master/etc/
+├── branch-a/
+└── branch-b/
+```

@@ -1,0 +1,1 @@
+10.10.0.40:/srv/nfs/home /mnt/nfs-home nfs defaults 0 0
