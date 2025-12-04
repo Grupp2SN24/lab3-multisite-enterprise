@@ -1,0 +1,3 @@
+# Branch A – Configured by Chinenye
+Date: Thu Dec  4 13:51:57 WEST 2025
+All eBGP sessions verified working
