@@ -5,6 +5,9 @@ auto ens4
 iface ens4 inet static
     address 10.10.0.23
     netmask 255.255.255.0
+    up ip route add 10.20.1.0/24 via 10.10.0.1
+    up ip route add 10.20.2.0/24 via 10.10.0.1
+    up ip route add 10.0.0.0/24 via 10.10.0.1
 
 auto ens5
 iface ens5 inet dhcp
