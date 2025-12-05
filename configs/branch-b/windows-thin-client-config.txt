@@ -1,0 +1,19 @@
+# Windows 10 Thin Client - Branch B
+# Network Configuration
+
+Ethernet Adapter: Ethernet 2
+IP Address: 10.20.2.10
+Subnet Mask: 255.255.255.0
+Default Gateway: 10.20.2.1
+DNS: 8.8.8.8, 8.8.4.4
+
+# Static Route (run as Administrator)
+route add 10.10.0.0 mask 255.255.255.0 10.20.2.1 -p
+
+# Firewall - Allow ICMP (optional)
+netsh advfirewall firewall add rule name="Allow ICMPv4" protocol=icmpv4:any,any dir=in action=allow
+
+# RDP Connection
+Server: 10.10.0.31
+Username: labuser
+Password: labpass123
