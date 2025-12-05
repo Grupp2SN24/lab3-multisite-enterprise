@@ -1,26 +1,45 @@
+! PE-A - Provider Edge Router for Branch A
+! Last updated: 2025-12-05
+!
 hostname PE-A
-
+!
 interface Loopback0
  ip address 2.2.2.10 255.255.255.255
-
+!
+interface GigabitEthernet0/0
+ description Link to CE-A
+ ip address 192.168.101.2 255.255.255.252
+!
 interface GigabitEthernet0/1
+ description Link to PE1
  ip address 10.255.0.6 255.255.255.252
- no shutdown
-
+!
 router ospf 1
  router-id 2.2.2.10
  network 2.2.2.10 0.0.0.0 area 0
  network 10.255.0.4 0.0.0.3 area 0
-
+!
 router bgp 65001
  bgp router-id 2.2.2.10
  bgp log-neighbor-changes
  neighbor 2.2.2.1 remote-as 65001
  neighbor 2.2.2.1 update-source Loopback0
- neighbor 2.2.2.1 next-hop-self
  neighbor 2.2.2.2 remote-as 65001
  neighbor 2.2.2.2 update-source Loopback0
- neighbor 2.2.2.2 next-hop-self
  neighbor 2.2.2.11 remote-as 65001
  neighbor 2.2.2.11 update-source Loopback0
- neighbor 2.2.2.11 next-hop-self
+ neighbor 192.168.101.1 remote-as 65000
+ neighbor 192.168.101.1 description CE-A
+ !
+ address-family ipv4
+  redistribute connected
+  neighbor 2.2.2.1 activate
+  neighbor 2.2.2.1 next-hop-self
+  neighbor 2.2.2.2 activate
+  neighbor 2.2.2.2 next-hop-self
+  neighbor 2.2.2.11 activate
+  neighbor 2.2.2.11 next-hop-self
+  neighbor 192.168.101.1 activate
+ exit-address-family
+!
+end

@@ -1,31 +1,49 @@
+! PE1 - Provider Edge Router 1
+! Last updated: 2025-12-05
+!
 hostname PE1
-
+!
 interface Loopback0
  ip address 2.2.2.1 255.255.255.255
-
+!
+interface GigabitEthernet0/0
+ description Link to CE-DC
+ ip address 192.168.100.2 255.255.255.252
+!
 interface GigabitEthernet0/1
+ description Link to PE-2
  ip address 10.255.0.1 255.255.255.252
- no shutdown
-
+!
 interface GigabitEthernet0/2
+ description Link to PE-A
  ip address 10.255.0.5 255.255.255.252
- no shutdown
-
+!
 router ospf 1
  router-id 2.2.2.1
  network 2.2.2.1 0.0.0.0 area 0
  network 10.255.0.0 0.0.0.3 area 0
  network 10.255.0.4 0.0.0.3 area 0
-
+!
 router bgp 65001
  bgp router-id 2.2.2.1
  bgp log-neighbor-changes
  neighbor 2.2.2.2 remote-as 65001
  neighbor 2.2.2.2 update-source Loopback0
- neighbor 2.2.2.2 next-hop-self
  neighbor 2.2.2.10 remote-as 65001
  neighbor 2.2.2.10 update-source Loopback0
- neighbor 2.2.2.10 next-hop-self
  neighbor 2.2.2.11 remote-as 65001
  neighbor 2.2.2.11 update-source Loopback0
- neighbor 2.2.2.11 next-hop-self
+ neighbor 192.168.100.1 remote-as 65000
+ neighbor 192.168.100.1 description CE-DC
+ !
+ address-family ipv4
+  neighbor 2.2.2.2 activate
+  neighbor 2.2.2.2 next-hop-self
+  neighbor 2.2.2.10 activate
+  neighbor 2.2.2.10 next-hop-self
+  neighbor 2.2.2.11 activate
+  neighbor 2.2.2.11 next-hop-self
+  neighbor 192.168.100.1 activate
+ exit-address-family
+!
+end

@@ -4,7 +4,12 @@
 hostname CE-B
 !
 vrf definition MGMT
- rd 65000:10
+ rd 65000:20
+ address-family ipv4
+ exit-address-family
+!
+vrf definition USER
+ rd 65000:40
  address-family ipv4
  exit-address-family
 !
@@ -21,7 +26,7 @@ interface GigabitEthernet0/1
  ip address 10.0.2.1 255.255.255.0
 !
 interface GigabitEthernet0/2
- description USER LAN
+ description USER VRF - LAN
  ip address 10.20.2.1 255.255.255.0
 !
 router bgp 65000
