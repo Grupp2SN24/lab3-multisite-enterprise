@@ -1,5 +1,6 @@
+! CE-DC - Datacenter Customer Edge Router
+! Last updated: 2025-12-04
 !
-version 15.9
 hostname CE-DC
 !
 vrf definition MGMT
@@ -39,6 +40,7 @@ interface GigabitEthernet0/3
 !
 router bgp 65000
  bgp router-id 1.1.1.1
+ bgp log-neighbor-changes
  neighbor 192.168.100.2 remote-as 65001
  neighbor 192.168.100.2 description PE1
  neighbor 192.168.100.6 remote-as 65001
@@ -50,7 +52,9 @@ router bgp 65000
   network 10.20.0.0 mask 255.255.255.0
   redistribute connected
   neighbor 192.168.100.2 activate
+  neighbor 192.168.100.2 allowas-in 2
   neighbor 192.168.100.6 activate
+  neighbor 192.168.100.6 allowas-in 2
  exit-address-family
  !
  address-family ipv4 vrf MGMT
@@ -62,7 +66,10 @@ ip route 2.2.2.0 255.255.255.0 192.168.100.6 10
 ip route 10.0.0.0 255.255.255.0 Null0
 ip route 10.20.0.0 255.255.255.0 Null0
 ip route 10.255.0.0 255.255.0.0 192.168.100.2
+ip route 10.255.0.0 255.255.0.0 192.168.100.6 10
 ip route 192.168.101.0 255.255.255.0 192.168.100.2
+ip route 192.168.101.0 255.255.255.0 192.168.100.6 10
 ip route 192.168.102.0 255.255.255.0 192.168.100.2
+ip route 192.168.102.0 255.255.255.0 192.168.100.6 10
 !
 end
