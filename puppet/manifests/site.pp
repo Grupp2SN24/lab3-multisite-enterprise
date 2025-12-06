@@ -25,3 +25,12 @@ node /^terminal-\d+$/ {
 node 'nfs-server' {
   include role::services::nfs
 }
+
+node 'ssh-bastion' {
+  include role::services::bastion
+}
+
+# Branch thin clients
+node /^thin-client/ {
+  include profile::base
+}
