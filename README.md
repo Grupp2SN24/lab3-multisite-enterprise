@@ -2,8 +2,29 @@
 
 ## Grupp 2 SN24
 
-## Projektöversikt
+## ✅ Projektöversikt
 Automatiserad multi-site-lösning med DC och två branches (A/B).
+
+**Status:** 12 hosts registrerade i Foreman ✅
+
+---
+
+## Foreman Hosts (12 st)
+
+| Host | OS | Status |
+|------|-----|--------|
+| desktop-u0643c4 (Windows) | Windows 10 | ✅ |
+| thin-client.branch-a.lab3.local | Debian 12.12 | ✅ |
+| haproxy-1 | Debian 12.12 | ✅ |
+| haproxy-2 | Debian 12.12 | ✅ |
+| web-1 | Debian 12.12 | ✅ |
+| web-2 | Debian 12.12 | ✅ |
+| web-3 | Debian 12.12 | ✅ |
+| nfs-server | Debian 12.12 | ✅ |
+| ssh-bastion | Debian 12.12 | ✅ |
+| puppet-master.lab3.local | Debian 12.12 | ✅ |
+| terminal-1 | AlmaLinux 9.4 | ✅ |
+| terminal-2 | AlmaLinux 9.4 | ✅ |
 
 ---
 
@@ -21,81 +42,64 @@ Automatiserad multi-site-lösning med DC och två branches (A/B).
 | Terminal-1 | 10.10.0.31 | AlmaLinux 9.4 | XRDP + NFS |
 | Terminal-2 | 10.10.0.32 | AlmaLinux 9.4 | XRDP + NFS |
 | NFS-Server | 10.10.0.40 | Debian 12 | NFS Server |
+| SSH-Bastion | 10.10.0.50 | Debian 12 | MFA SSH Gateway |
 
-### Datacenter (DC) - MGMT VRF (10.0.0.0/24)
+### Branch A (10.20.1.0/24)
 | Enhet | IP | OS | Tjänst |
 |-------|-----|-----|--------|
-| Puppet-Master | 10.0.0.10 | Debian 12 | Puppet Server |
-| CE-DC (Gi0/3) | 10.0.0.1 | Cisco IOSv | Gateway |
+| PXE-Server | 10.20.1.10 | Debian 12 | DHCP/TFTP/PXE |
+| Thin-Client | 10.20.1.20 | Debian 12 | PXE-deployed |
 
-### Routing - Enterprise AS65000
-| Router | Loopback | Kopplingar |
-|--------|----------|------------|
-| CE-DC | 1.1.1.1 | PE1, PE2 (dual-homed eBGP) |
-| CE-A | 1.1.1.10 | PE-A |
-| CE-B | 1.1.1.11 | PE-B |
-
-### Provider Core AS65001
-| Router | Loopback | Roll |
-|--------|----------|------|
-| PE1 | 2.2.2.1 | DC Provider Edge 1 |
-| PE2 | 2.2.2.2 | DC Provider Edge 2 |
-| PE-A | 2.2.2.10 | Branch A Provider Edge |
-| PE-B | 2.2.2.11 | Branch B Provider Edge |
+### Branch B (10.20.2.0/24)
+| Enhet | IP | OS | Tjänst |
+|-------|-----|-----|--------|
+| Windows-Client | 10.20.2.10 | Windows 10 | Puppet-managed |
 
 ---
 
-## Tjänster
+## Automation
 
-### Load Balancing (HAProxy + VRRP)
-- **VIP:** 10.10.0.9
-- **Algoritm:** Round-robin
-- **Backends:** Web-1, Web-2, Web-3
-- **Failover:** Automatisk mellan HAPROXY-1 (Master) och HAPROXY-2 (Backup)
+### Puppet Bootstrap
+```bash
+# Debian
+curl -s http://puppet-master.lab3.local/bootstrap-debian.sh | bash
 
-### Terminal Servers (XRDP)
-- **Kapacitet:** 20 samtidiga användare (2 noder)
-- **Gemensam lagring:** NFS mount från 10.10.0.40
-- **Användare:** labuser / labpass123
+# AlmaLinux
+curl -s http://puppet-master.lab3.local/bootstrap-alma.sh | bash
+```
 
-### NFS Server
-- **Export:** /srv/nfs/home
-- **Klienter:** 10.10.0.0/24
+### PXE Boot (Branch A)
+- Automatisk Debian-installation via preseed
+- Puppet-agent installeras automatiskt
+- Registreras i Foreman
 
 ---
 
-## Testkommandon
+## Demo Testkommandon
 ```bash
 # Test load balancing (kör flera gånger)
 curl http://10.10.0.9
 
-# Test VRRP failover
-# På HAPROXY-1: sudo systemctl stop keepalived
-# VIP flyttar till HAPROXY-2
-
 # Test RDP till terminal server
-xfreerdp /v:10.10.0.31 /u:labuser /p:labpass123
+xfreerdp /v:10.10.0.31 /u:user01 /p:password123
+
+# Test från Windows
+mstsc /v:10.10.0.31
 ```
 
 ---
 
 ## Filstruktur
 ```
-configs/
-├── dc/
-│   ├── routers/
-│   │   └── ce-dc-config.txt
-│   ├── services/
-│   │   ├── haproxy-1/etc/
-│   │   ├── haproxy-2/etc/
-│   │   ├── web-1/etc/
-│   │   ├── web-2/etc/
-│   │   ├── web-3/etc/
-│   │   ├── terminal-1/etc/
-│   │   ├── terminal-2/etc/
-│   │   └── nfs-server/etc/
-│   └── mgmt/
-│       └── puppet-master/etc/
-├── branch-a/
-└── branch-b/
+├── bootstrap/           # Puppet agent install scripts
+├── configs/
+│   ├── dc/             # Datacenter configs
+│   ├── branch-a/       # Branch A + PXE thin client
+│   ├── branch-b/       # Branch B + Windows thin client
+│   └── provider/       # PE router configs
+├── puppet/
+│   ├── manifests/      # site.pp
+│   └── modules/        # profile, role modules
+├── pxe-server/         # DHCP, TFTP, preseed configs
+└── docs/               # Architecture, runbooks
 ```
