@@ -1,6 +1,5 @@
 ! CE-B - Branch B Customer Edge Router
 ! Last updated: 2025-12-07
-! Features: VRFs, eBGP, prefix-lists, BFD, max-prefix
 !
 hostname CE-B
 !
@@ -13,8 +12,6 @@ vrf definition USER
  rd 65000:40
  address-family ipv4
  exit-address-family
-!
-bfd slow-timers 2000
 !
 interface Loopback0
  ip address 1.1.1.11 255.255.255.255
@@ -33,6 +30,22 @@ interface GigabitEthernet0/2
  description USER VRF - LAN
  ip address 10.20.2.1 255.255.255.0
 !
+! === BGP Security: Prefix-lists ===
+ip prefix-list BRANCH-B-OUT seq 10 permit 10.0.2.0/24
+ip prefix-list BRANCH-B-OUT seq 20 permit 10.20.2.0/24
+ip prefix-list BRANCH-B-OUT seq 1000 deny 0.0.0.0/0 le 32
+!
+ip prefix-list BRANCH-B-IN seq 10 permit 10.0.0.0/24
+ip prefix-list BRANCH-B-IN seq 20 permit 10.0.1.0/24
+ip prefix-list BRANCH-B-IN seq 30 permit 10.10.0.0/24
+ip prefix-list BRANCH-B-IN seq 40 permit 10.20.0.0/24
+ip prefix-list BRANCH-B-IN seq 50 permit 10.20.1.0/24
+ip prefix-list BRANCH-B-IN seq 60 permit 2.2.2.0/24 le 32
+ip prefix-list BRANCH-B-IN seq 1000 deny 0.0.0.0/0 le 32
+!
+! === BFD Global ===
+bfd slow-timers 2000
+!
 router bgp 65000
  bgp router-id 1.1.1.11
  bgp log-neighbor-changes
@@ -50,21 +63,17 @@ router bgp 65000
   neighbor 192.168.102.2 maximum-prefix 50 80 warning-only
  exit-address-family
 !
-! === PREFIX LISTS ===
-ip prefix-list BRANCH-B-IN seq 10 permit 10.0.0.0/24
-ip prefix-list BRANCH-B-IN seq 20 permit 10.0.1.0/24
-ip prefix-list BRANCH-B-IN seq 30 permit 10.10.0.0/24
-ip prefix-list BRANCH-B-IN seq 40 permit 10.20.0.0/24
-ip prefix-list BRANCH-B-IN seq 50 permit 10.20.1.0/24
-ip prefix-list BRANCH-B-IN seq 60 permit 2.2.2.0/24 le 32
-ip prefix-list BRANCH-B-IN seq 1000 deny 0.0.0.0/0 le 32
-!
-ip prefix-list BRANCH-B-OUT seq 10 permit 10.0.2.0/24
-ip prefix-list BRANCH-B-OUT seq 20 permit 10.20.2.0/24
-ip prefix-list BRANCH-B-OUT seq 1000 deny 0.0.0.0/0 le 32
-!
-! === STATIC ROUTES ===
 ip route 10.0.2.0 255.255.255.0 Null0
 ip route 10.20.2.0 255.255.255.0 Null0
+!
+! === SNMPv3 Configuration ===
+snmp-server group LAB3-RO v3 priv read LAB3-VIEW access 99
+snmp-server view LAB3-VIEW iso included
+snmp-server user snmpuser LAB3-RO v3 auth sha Lab3SNMPauth! priv aes 128 Lab3SNMPpriv!
+snmp-server location "Branch B - Grupp2 SN24"
+snmp-server contact "admin@grupp2.lab3.local"
+!
+access-list 99 permit 10.0.0.0 0.0.0.255
+access-list 99 permit 10.0.2.0 0.0.0.255
 !
 end
