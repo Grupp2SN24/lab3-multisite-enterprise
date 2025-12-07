@@ -1,7 +1,10 @@
 ! PE1 - Provider Edge Router 1
-! Last updated: 2025-12-05
+! Last updated: 2025-12-07
+! Features: OSPF, iBGP full-mesh, prefix-list, BFD, max-prefix
 !
 hostname PE1
+!
+bfd slow-timers 2000
 !
 interface Loopback0
  ip address 2.2.2.1 255.255.255.255
@@ -9,6 +12,7 @@ interface Loopback0
 interface GigabitEthernet0/0
  description Link to CE-DC
  ip address 192.168.100.2 255.255.255.252
+ bfd interval 300 min_rx 300 multiplier 3
 !
 interface GigabitEthernet0/1
  description Link to PE-2
@@ -35,6 +39,7 @@ router bgp 65001
  neighbor 2.2.2.11 update-source Loopback0
  neighbor 192.168.100.1 remote-as 65000
  neighbor 192.168.100.1 description CE-DC
+ neighbor 192.168.100.1 fall-over bfd
  !
  address-family ipv4
   neighbor 2.2.2.2 activate
@@ -44,6 +49,14 @@ router bgp 65001
   neighbor 2.2.2.11 activate
   neighbor 2.2.2.11 next-hop-self
   neighbor 192.168.100.1 activate
+  neighbor 192.168.100.1 prefix-list FROM-DC in
+  neighbor 192.168.100.1 maximum-prefix 20 80 warning-only
  exit-address-family
+!
+! === PREFIX LISTS ===
+ip prefix-list FROM-DC seq 10 permit 10.0.0.0/24
+ip prefix-list FROM-DC seq 20 permit 10.10.0.0/24
+ip prefix-list FROM-DC seq 30 permit 10.20.0.0/24
+ip prefix-list FROM-DC seq 1000 deny 0.0.0.0/0 le 32
 !
 end

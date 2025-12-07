@@ -1,7 +1,10 @@
 ! PE-B - Provider Edge Router for Branch B
-! Last updated: 2025-12-05
+! Last updated: 2025-12-07
+! Features: OSPF, iBGP full-mesh, prefix-list, BFD, max-prefix
 !
 hostname PE-B
+!
+bfd slow-timers 2000
 !
 interface Loopback0
  ip address 2.2.2.11 255.255.255.255
@@ -9,6 +12,7 @@ interface Loopback0
 interface GigabitEthernet0/0
  description Link to CE-B
  ip address 192.168.102.2 255.255.255.252
+ bfd interval 300 min_rx 300 multiplier 3
 !
 interface GigabitEthernet0/1
  description Link to PE-2
@@ -30,6 +34,7 @@ router bgp 65001
  neighbor 2.2.2.10 update-source Loopback0
  neighbor 192.168.102.1 remote-as 65000
  neighbor 192.168.102.1 description CE-B
+ neighbor 192.168.102.1 fall-over bfd
  !
  address-family ipv4
   neighbor 2.2.2.1 activate
@@ -39,6 +44,13 @@ router bgp 65001
   neighbor 2.2.2.10 activate
   neighbor 2.2.2.10 next-hop-self
   neighbor 192.168.102.1 activate
+  neighbor 192.168.102.1 prefix-list FROM-BRANCH-B in
+  neighbor 192.168.102.1 maximum-prefix 10 80 warning-only
  exit-address-family
+!
+! === PREFIX LISTS ===
+ip prefix-list FROM-BRANCH-B seq 10 permit 10.0.2.0/24
+ip prefix-list FROM-BRANCH-B seq 20 permit 10.20.2.0/24
+ip prefix-list FROM-BRANCH-B seq 1000 deny 0.0.0.0/0 le 32
 !
 end

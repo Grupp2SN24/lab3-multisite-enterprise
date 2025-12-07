@@ -1,5 +1,6 @@
 ! CE-B - Branch B Customer Edge Router
-! Last updated: 2025-12-05
+! Last updated: 2025-12-07
+! Features: VRFs, eBGP, prefix-lists, BFD, max-prefix
 !
 hostname CE-B
 !
@@ -13,12 +14,15 @@ vrf definition USER
  address-family ipv4
  exit-address-family
 !
+bfd slow-timers 2000
+!
 interface Loopback0
  ip address 1.1.1.11 255.255.255.255
 !
 interface GigabitEthernet0/0
  description Link to PE-B
  ip address 192.168.102.1 255.255.255.252
+ bfd interval 300 min_rx 300 multiplier 3
 !
 interface GigabitEthernet0/1
  description MGMT VRF
@@ -34,14 +38,32 @@ router bgp 65000
  bgp log-neighbor-changes
  neighbor 192.168.102.2 remote-as 65001
  neighbor 192.168.102.2 description PE-B
+ neighbor 192.168.102.2 fall-over bfd
  !
  address-family ipv4
   network 10.0.2.0 mask 255.255.255.0
   network 10.20.2.0 mask 255.255.255.0
   neighbor 192.168.102.2 activate
   neighbor 192.168.102.2 allowas-in 2
+  neighbor 192.168.102.2 prefix-list BRANCH-B-IN in
+  neighbor 192.168.102.2 prefix-list BRANCH-B-OUT out
+  neighbor 192.168.102.2 maximum-prefix 50 80 warning-only
  exit-address-family
 !
+! === PREFIX LISTS ===
+ip prefix-list BRANCH-B-IN seq 10 permit 10.0.0.0/24
+ip prefix-list BRANCH-B-IN seq 20 permit 10.0.1.0/24
+ip prefix-list BRANCH-B-IN seq 30 permit 10.10.0.0/24
+ip prefix-list BRANCH-B-IN seq 40 permit 10.20.0.0/24
+ip prefix-list BRANCH-B-IN seq 50 permit 10.20.1.0/24
+ip prefix-list BRANCH-B-IN seq 60 permit 2.2.2.0/24 le 32
+ip prefix-list BRANCH-B-IN seq 1000 deny 0.0.0.0/0 le 32
+!
+ip prefix-list BRANCH-B-OUT seq 10 permit 10.0.2.0/24
+ip prefix-list BRANCH-B-OUT seq 20 permit 10.20.2.0/24
+ip prefix-list BRANCH-B-OUT seq 1000 deny 0.0.0.0/0 le 32
+!
+! === STATIC ROUTES ===
 ip route 10.0.2.0 255.255.255.0 Null0
 ip route 10.20.2.0 255.255.255.0 Null0
 !
