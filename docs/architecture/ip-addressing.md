@@ -13,7 +13,6 @@
 | Puppet-Master-2 | 10.0.0.11 | Config mgmt |
 | PuppetDB | 10.0.0.12 | Database |
 | Foreman | 10.0.0.13 | Provisioning |
-| SSH-Bastion | 10.0.0.20 | Access |
 
 ### Services VRF
 - **Subnet**: 10.10.0.0/24
@@ -30,7 +29,7 @@
 | Terminal-1 | 10.10.0.31 | XRDP server |
 | Terminal-2 | 10.10.0.32 | XRDP server |
 | NFS-Server | 10.10.0.40 | File storage |
-
+| SSH-Bastion | 10.10.0.50 | MFA SSH Gateway |
 ### User VRF
 - **Subnet**: 10.20.0.0/24
 - **Gateway**: 10.20.0.1 (CE-DC)
