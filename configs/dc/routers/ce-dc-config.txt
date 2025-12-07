@@ -72,4 +72,8 @@ ip route 192.168.101.0 255.255.255.0 192.168.100.6 10
 ip route 192.168.102.0 255.255.255.0 192.168.100.2
 ip route 192.168.102.0 255.255.255.0 192.168.100.6 10
 !
+! Syslog
+logging host 10.0.0.10 vrf MGMT
+logging trap informational
+!
 end
