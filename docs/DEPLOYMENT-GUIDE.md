@@ -1358,3 +1358,42 @@ show run | include allowas
 **GitHub:** https://github.com/Grupp2SN24/lab3-multisite-enterprise
 
 Lycka till! 🚀
+
+---
+
+## Appendix: Foreman Web UI
+
+### Åtkomst
+
+| Parameter | Värde |
+|-----------|-------|
+| **URL** | https://puppet-master.lab3.local |
+| **Alternativ URL** | https://192.168.122.40 |
+| **Användarnamn** | admin |
+| **Lösenord** | Labpass123! |
+
+### Åtkomst från din dator
+
+Lägg till i `/etc/hosts`:
+```bash
+echo "192.168.122.40 puppet-master.lab3.local puppet-master puppet" | sudo tee -a /etc/hosts
+```
+
+Öppna sedan: https://puppet-master.lab3.local
+
+**OBS:** Acceptera self-signed certificate i webbläsaren.
+
+### Verifiera i Foreman
+
+- **Hosts > All Hosts** - Ska visa 12 registrerade hosts
+- **Infrastructure > Smart Proxies** - Puppet CA och Puppet ska vara gröna
+- **Monitor > Dashboard** - Översikt över alla hosts
+
+### Puppet Certificate Management
+```bash
+# Lista alla certifikat
+sudo /opt/puppetlabs/bin/puppetserver ca list --all
+
+# Signera väntande certifikat
+sudo /opt/puppetlabs/bin/puppetserver ca sign --all
+```
