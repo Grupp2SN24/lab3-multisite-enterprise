@@ -1,5 +1,5 @@
 ! CE-B - Branch B Customer Edge Router
-! Last updated: 2025-12-07
+! Last updated: 2025-12-08
 !
 hostname CE-B
 !
@@ -20,6 +20,8 @@ interface GigabitEthernet0/0
  description Link to PE-B
  ip address 192.168.102.1 255.255.255.252
  bfd interval 300 min_rx 300 multiplier 3
+ ip flow ingress
+ ip flow egress
 !
 interface GigabitEthernet0/1
  description MGMT VRF
@@ -29,6 +31,13 @@ interface GigabitEthernet0/1
 interface GigabitEthernet0/2
  description USER VRF - LAN
  ip address 10.20.2.1 255.255.255.0
+ ip flow ingress
+ ip flow egress
+!
+! === NetFlow Configuration ===
+ip flow-export version 9
+ip flow-export destination 10.10.0.10 2055
+ip flow-export source Loopback0
 !
 ! === BGP Security: Prefix-lists ===
 ip prefix-list BRANCH-B-OUT seq 10 permit 10.0.2.0/24
