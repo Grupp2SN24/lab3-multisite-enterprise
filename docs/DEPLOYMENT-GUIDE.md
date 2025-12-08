@@ -1322,10 +1322,3 @@ show run | include allowas
 3. Kolla att gateway är nåbar: `ping 10.10.0.1`
 
 ---
-
-## Kontaktinfo
-
-**Team Lead:** Anton  
-**GitHub:** https://github.com/Grupp2SN24/lab3-multisite-enterprise
-
-Lycka till! 🚀
