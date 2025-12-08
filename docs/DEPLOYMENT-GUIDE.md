@@ -35,39 +35,10 @@ Innan du börjar, se till att du har:
 
 ### Översikt
 
-```
-                    ┌─────────────────────────────────┐
-                    │     PROVIDER CORE (AS65001)     │
-                    │                                 │
-                    │   PE1 ─────────── PE-2          │
-                    │    │               │            │
-                    │   PE-A           PE-B           │
-                    └────┼───────────────┼────────────┘
-                         │               │
-              ┌──────────┴───┐     ┌─────┴──────────┐
-              │   BRANCH A   │     │    BRANCH B    │
-              │   (AS65000)  │     │    (AS65000)   │
-              │              │     │                │
-              │  CE-A        │     │     CE-B       │
-              │    │         │     │       │        │
-              │  LAN-SW-A    │     │   LAN-SW-B     │
-              │    │         │     │       │        │
-              │  Clients     │     │    Clients     │
-              └──────────────┘     └────────────────┘
-                         │
-              ┌──────────┴───────────────────────────┐
-              │          DATACENTER (AS65000)        │
-              │                                      │
-              │  CE-DC (dual-homed till PE1 + PE2)   │
-              │     │                                │
-              │  SERVICES-SW                         │
-              │     ├── HAProxy-1/2 (VIP: 10.10.0.9) │
-              │     ├── Web-1/2/3                    │
-              │     ├── Terminal-1/2                 │
-              │     ├── NFS-Server                   │
-              │     └── SSH-Bastion                  │
-              └──────────────────────────────────────┘
-```
+
+![GNS3 Topologi](images/gns3-topology.png)
+
+
 
 ### Enheter att skapa i GNS3
 
