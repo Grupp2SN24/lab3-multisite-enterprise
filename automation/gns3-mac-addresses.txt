@@ -1,0 +1,81 @@
+# GNS3 MAC Address Configuration
+# Lab 3 - Grupp 2 SN24
+#
+# Use these MAC addresses when creating VMs in GNS3
+# This ensures the automation system can identify each host
+#
+# Format: MAC_ADDRESS | HOSTNAME | IP | ROLE
+
+# ═══════════════════════════════════════════════════════════════
+# DATACENTER - SERVICES VRF (10.10.0.0/24)
+# Connect ens4/eth0 to: SERVICES-SW
+# ═══════════════════════════════════════════════════════════════
+
+0c:10:00:00:00:10 | haproxy-1   | 10.10.0.10 | Load Balancer (VRRP Master)
+0c:10:00:00:00:11 | haproxy-2   | 10.10.0.11 | Load Balancer (VRRP Backup)
+0c:10:00:00:00:21 | web-1       | 10.10.0.21 | Apache Web Server
+0c:10:00:00:00:22 | web-2       | 10.10.0.22 | Apache Web Server
+0c:10:00:00:00:23 | web-3       | 10.10.0.23 | Apache Web Server
+0c:10:00:00:00:31 | terminal-1  | 10.10.0.31 | XRDP Terminal Server (AlmaLinux)
+0c:10:00:00:00:32 | terminal-2  | 10.10.0.32 | XRDP Terminal Server (AlmaLinux)
+0c:10:00:00:00:40 | nfs-server  | 10.10.0.40 | NFS File Server
+0c:10:00:00:00:50 | ssh-bastion | 10.10.0.50 | SSH Gateway with MFA
+
+# ═══════════════════════════════════════════════════════════════
+# DATACENTER - MGMT VRF (10.0.0.0/24)
+# Connect ens4/eth0 to: MGMT-SW
+# ═══════════════════════════════════════════════════════════════
+
+0c:00:00:00:00:10 | puppet-master | 10.0.0.10 | Puppet Server + Dashboard
+
+# ═══════════════════════════════════════════════════════════════
+# BRANCH A - USER VRF (10.20.1.0/24)
+# Connect ens4/eth0 to: LAN-SW-A
+# ═══════════════════════════════════════════════════════════════
+
+0c:20:01:00:00:10 | pxe-server    | 10.20.1.10 | PXE/DHCP Server
+0c:20:01:00:00:20 | thin-client-a | 10.20.1.20 | Debian Thin Client
+
+# ═══════════════════════════════════════════════════════════════
+# BRANCH B - USER VRF (10.20.2.0/24)
+# Connect ens4/eth0 to: LAN-SW-B
+# ═══════════════════════════════════════════════════════════════
+
+0c:20:02:00:00:10 | windows-client | 10.20.2.10 | Windows 10 Thin Client
+
+# ═══════════════════════════════════════════════════════════════
+# HOW TO SET MAC ADDRESS IN GNS3
+# ═══════════════════════════════════════════════════════════════
+#
+# 1. Right-click on VM → Configure
+# 2. Go to "Network" tab
+# 3. Click on adapter 0 (Ethernet0 / ens4)
+# 4. Change "MAC address" to the value from this list
+# 5. Click OK
+#
+# IMPORTANT: 
+# - Adapter 0 (ens4) = Internal network (SERVICES, MGMT, USER)
+# - Adapter 1 (ens5) = NAT cloud (for internet access)
+#
+# ═══════════════════════════════════════════════════════════════
+# MAC ADDRESS SCHEME
+# ═══════════════════════════════════════════════════════════════
+#
+# Format: 0c:XX:YY:00:00:ZZ
+#
+# XX = VRF identifier
+#   00 = MGMT
+#   10 = SERVICES
+#   20 = USER
+#
+# YY = Site identifier (for USER VRF)
+#   00 = DC
+#   01 = Branch A
+#   02 = Branch B
+#
+# ZZ = Host number (last octet of IP)
+#
+# Examples:
+#   0c:10:00:00:00:21 = SERVICES VRF, DC, IP .21 (web-1)
+#   0c:20:01:00:00:20 = USER VRF, Branch A, IP .20 (thin-client)
+#
