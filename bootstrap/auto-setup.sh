@@ -1,13 +1,9 @@
 #!/bin/bash
 #===============================================================================
-# Lab 3 - Auto Setup Script (Fixed Version)
+# Lab 3 - Auto Setup Script 
 # Grupp 2 SN24
 #
-# This script automatically configures a new VM by:
-# 1. Getting its MAC address
-# 2. Looking up configuration from the dashboard
-# 3. Cloning the repo and copying pre-made config files
-# 4. Installing role-specific packages and Puppet
+# FIXED: Added DEBIAN_FRONTEND=noninteractive to prevent dpkg prompts
 #
 # Usage: curl -s http://DASHBOARD_IP:5000/auto-setup.sh | bash
 #===============================================================================
@@ -27,6 +23,13 @@ PUPPET_SERVER="192.168.122.127"
 PUPPET_FQDN="puppet-master.lab3.local"
 REPO_URL="https://github.com/Grupp2SN24/lab3-multisite-enterprise.git"
 
+# ============================================================================
+# CRITICAL FIX: Prevent ALL interactive prompts from dpkg/apt
+# ============================================================================
+export DEBIAN_FRONTEND=noninteractive
+export APT_LISTCHANGES_FRONTEND=none
+APT_OPTS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confnew"
+
 #===============================================================================
 # Helper Functions
 #===============================================================================
@@ -37,7 +40,6 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 
 get_mac() {
-    # Get MAC of ens4 (internal network)
     if ip link show ens4 &>/dev/null; then
         ip link show ens4 | grep ether | awk '{print $2}'
     elif ip link show eth0 &>/dev/null; then
@@ -54,8 +56,13 @@ update_status() {
         >/dev/null 2>&1 || true
 }
 
+# Non-interactive apt install wrapper
+apt_install() {
+    apt-get install -y $APT_OPTS "$@"
+}
+
 #===============================================================================
-# MAC to Host Mapping (fallback if dashboard unavailable)
+# MAC to Host Mapping
 #===============================================================================
 
 get_host_config() {
@@ -82,7 +89,8 @@ get_host_config() {
 
 echo ""
 echo "╔═══════════════════════════════════════════════════════════════╗"
-echo "║       Lab 3 Multi-Site Enterprise - Auto Setup v2.0           ║"
+echo "║       Lab 3 Multi-Site Enterprise - Auto Setup v3.0           ║"
+echo "║          (Fixed: No interactive prompts)                      ║"
 echo "║                    Grupp 2 SN24                               ║"
 echo "╚═══════════════════════════════════════════════════════════════╝"
 echo ""
@@ -140,7 +148,6 @@ echo "  IP: ${IP}"
 echo "  Role: ${ROLE}"
 echo "  VRF: ${VRF}"
 
-# Notify dashboard
 update_status "configuring" "host identified"
 
 # Step 4: Set hostname
@@ -151,8 +158,8 @@ log_success "Hostname set"
 
 # Step 5: Install base packages and clone repo
 log_info "Installing packages and cloning repo..."
-apt update
-apt install -y curl wget git
+apt-get update
+apt_install curl wget git
 
 cd /tmp
 rm -rf lab3-multisite-enterprise
@@ -215,28 +222,25 @@ ip addr flush dev ens4 2>/dev/null || true
 ifdown ens4 2>/dev/null || true
 ifup ens4 2>/dev/null || true
 
-# Verify
 sleep 2
 if ip addr show ens4 | grep -q "${IP}"; then
     log_success "ens4 has IP ${IP}"
 else
-    log_warn "ens4 IP not visible yet - may need 'systemctl restart networking' or cable check"
+    log_warn "ens4 IP not visible yet"
 fi
 
 update_status "configuring" "network configured"
 
-# Step 8: Install role-specific packages
+# Step 8: Install role-specific packages (NON-INTERACTIVE!)
 log_info "Installing role-specific packages for: ${ROLE}..."
 
 case "${ROLE}" in
     loadbalancer)
-        apt install -y haproxy keepalived nfdump
+        apt_install haproxy keepalived nfdump
         
-        # Copy config files
         cp "${REPO_DIR}/configs/dc/services/${HOSTNAME}/etc/haproxy/haproxy.cfg" /etc/haproxy/haproxy.cfg
         cp "${REPO_DIR}/configs/dc/services/${HOSTNAME}/etc/keepalived/keepalived.conf" /etc/keepalived/keepalived.conf
         
-        # Start NetFlow collector
         mkdir -p /var/cache/nfdump
         nfcapd -D -w /var/cache/nfdump -p 2055 -l /var/cache/nfdump 2>/dev/null || true
         
@@ -246,7 +250,7 @@ case "${ROLE}" in
         ;;
         
     webserver)
-        apt install -y apache2
+        apt_install apache2
         echo "<h1>Lab 3 - Server: ${HOSTNAME}</h1><p>IP: ${IP}</p><p>Served via HAProxy</p>" > /var/www/html/index.html
         systemctl enable apache2
         systemctl restart apache2
@@ -254,10 +258,8 @@ case "${ROLE}" in
         ;;
         
     terminal)
-        # For AlmaLinux this would be different
-        apt install -y xrdp nfs-common || true
+        apt_install xrdp nfs-common || true
         
-        # Create users
         for i in $(seq -w 1 20); do
             useradd -m "user${i}" 2>/dev/null || true
             echo "user${i}:password123" | chpasswd
@@ -269,7 +271,7 @@ case "${ROLE}" in
         ;;
         
     nfs)
-        apt install -y nfs-kernel-server
+        apt_install nfs-kernel-server
         mkdir -p /srv/nfs/home
         chmod 777 /srv/nfs/home
         cp "${REPO_DIR}/configs/dc/services/nfs-server/etc/exports" /etc/exports
@@ -280,14 +282,15 @@ case "${ROLE}" in
         ;;
         
     bastion)
-        apt install -y openssh-server libpam-google-authenticator
+        # THIS IS THE FIX - using apt_install with non-interactive options
+        apt_install openssh-server libpam-google-authenticator
         systemctl enable ssh
         systemctl restart ssh
         log_success "SSH bastion installed"
         ;;
         
     thinclient)
-        apt install -y freerdp2-x11 xorg
+        apt_install freerdp2-x11 xorg
         log_success "Thin client packages installed"
         ;;
 esac
@@ -297,7 +300,6 @@ update_status "configuring" "role packages installed"
 # Step 9: Install Puppet agent
 log_info "Installing Puppet agent..."
 
-# Add puppet server to hosts
 sed -i '/puppet-master/d' /etc/hosts
 sed -i '/puppet/d' /etc/hosts
 echo "${PUPPET_SERVER} ${PUPPET_FQDN} puppet-master puppet" >> /etc/hosts
@@ -305,8 +307,8 @@ echo "${PUPPET_SERVER} ${PUPPET_FQDN} puppet-master puppet" >> /etc/hosts
 cd /tmp
 wget -q https://apt.puppet.com/puppet8-release-bookworm.deb || true
 dpkg -i puppet8-release-bookworm.deb 2>/dev/null || true
-apt update
-apt install -y puppet-agent
+apt-get update
+apt_install puppet-agent
 
 cat > /etc/puppetlabs/puppet/puppet.conf << EOF
 [main]
@@ -333,9 +335,4 @@ echo "║  IP: ${IP}"
 echo "║  Role: ${ROLE}"
 echo "║  Status: READY"
 echo "╚═══════════════════════════════════════════════════════════════╝"
-echo ""
-echo "Verify with:"
-echo "  ip a show ens4"
-echo "  systemctl status haproxy  (if loadbalancer)"
-echo "  curl http://localhost     (if webserver)"
 echo ""
