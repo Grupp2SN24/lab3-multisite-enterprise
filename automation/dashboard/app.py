@@ -382,6 +382,19 @@ echo "${PUPPET_SERVER} ${PUPPET_FQDN} puppet-master puppet" >> /etc/hosts
     
     return script, 200, {'Content-Type': 'text/plain'}
 
+
+# Serve bootstrap scripts
+@app.route('/bootstrap')
+def serve_bootstrap():
+    with open('/opt/lab3-dashboard/bootstrap.sh', 'r') as f:
+        return f.read(), 200, {'Content-Type': 'text/plain'}
+
+@app.route('/auto-setup.sh')
+def serve_auto_setup():
+    with open('/opt/lab3-dashboard/auto-setup.sh', 'r') as f:
+        return f.read(), 200, {'Content-Type': 'text/plain'}
+
+
 if __name__ == '__main__':
     log_activity("Dashboard started", "success")
     app.run(host='0.0.0.0', port=5000, debug=True)
