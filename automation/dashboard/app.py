@@ -7,15 +7,13 @@ Provides:
 - REST API for auto-discovery of new hosts
 - Web dashboard for monitoring deployment status
 - Automatic Puppet certificate signing
+- Dynamic script serving for all .sh files
 """
 
-from flask import Flask, jsonify, request, render_template_string
-import yaml
+from flask import Flask, jsonify, request, render_template_string, Response
 import os
 import subprocess
 import datetime
-import threading
-import time
 
 app = Flask(__name__)
 
@@ -53,6 +51,12 @@ VRF_CONFIG = {
 
 # Runtime state - tracks deployment status
 deployment_status = {}
+
+# Activity log
+activity_log = []
+
+# Dashboard directory (where scripts are stored)
+DASHBOARD_DIR = "/opt/lab3-dashboard"
 
 # HTML Template for Dashboard
 DASHBOARD_HTML = """
@@ -98,6 +102,8 @@ DASHBOARD_HTML = """
         .log-info { color: #00d4ff; }
         .log-success { color: #00ff88; }
         .log-error { color: #ff4444; }
+        .scripts-box { background: #16213e; padding: 15px; border-radius: 10px; margin-top: 20px; }
+        .scripts-box code { background: #0a0a15; padding: 2px 6px; border-radius: 3px; }
     </style>
 </head>
 <body>
@@ -171,6 +177,13 @@ DASHBOARD_HTML = """
             <button class="btn btn-danger" onclick="resetAll()">Reset All Status</button>
         </div>
         
+        <h2>📜 Available Scripts</h2>
+        <div class="scripts-box">
+            <p><strong>Debian hosts:</strong> <code>curl -s http://{{ request.host }}/auto-setup.sh | bash</code></p>
+            <p><strong>AlmaLinux hosts:</strong> <code>curl -s http://{{ request.host }}/auto-setup-alma.sh | bash</code></p>
+            <p><strong>Quick bootstrap:</strong> <code>curl -s http://{{ request.host }}/bootstrap | bash</code></p>
+        </div>
+        
         <h2>📜 Recent Activity</h2>
         <div class="log-box">
             {% for log in logs[-20:] %}
@@ -201,8 +214,6 @@ DASHBOARD_HTML = """
 </html>
 """
 
-# Activity log
-activity_log = []
 
 def log_activity(message, level="info"):
     """Add entry to activity log"""
@@ -215,7 +226,44 @@ def log_activity(message, level="info"):
     if len(activity_log) > 100:
         activity_log.pop(0)
 
-# API Endpoints
+
+# ============================================================================
+# DYNAMIC SCRIPT SERVING - Serves any .sh file from DASHBOARD_DIR
+# ============================================================================
+
+@app.route('/<script_name>')
+def serve_script(script_name):
+    """
+    Dynamically serve any .sh file from the dashboard directory.
+    This handles: /bootstrap, /bootstrap.sh, /auto-setup.sh, /auto-setup-alma.sh, etc.
+    """
+    # Handle /bootstrap -> bootstrap.sh
+    if script_name == 'bootstrap':
+        script_name = 'bootstrap.sh'
+    
+    # Only serve .sh files for security
+    if not script_name.endswith('.sh'):
+        return None  # Let other routes handle non-.sh requests
+    
+    script_path = os.path.join(DASHBOARD_DIR, script_name)
+    
+    if os.path.exists(script_path) and os.path.isfile(script_path):
+        try:
+            with open(script_path, 'r') as f:
+                content = f.read()
+            log_activity(f"Served script: {script_name}", "info")
+            return Response(content, mimetype='text/plain')
+        except Exception as e:
+            log_activity(f"Error reading {script_name}: {e}", "error")
+            return Response(f"Error reading script: {e}", status=500, mimetype='text/plain')
+    else:
+        log_activity(f"Script not found: {script_name}", "error")
+        return Response(f"Script not found: {script_name}", status=404, mimetype='text/plain')
+
+
+# ============================================================================
+# API ENDPOINTS
+# ============================================================================
 
 @app.route('/')
 def dashboard():
@@ -234,12 +282,13 @@ def dashboard():
         logs=activity_log
     )
 
+
 @app.route('/api/discover', methods=['POST'])
 def discover():
     """
     Called by new hosts to get their configuration.
     Expects JSON: {"mac": "xx:xx:xx:xx:xx:xx"}
-    Returns: hostname, ip, role, network config, setup script
+    Returns: hostname, ip, role, network config
     """
     data = request.get_json()
     mac = data.get('mac', '').lower()
@@ -279,6 +328,7 @@ def discover():
     
     return jsonify(response)
 
+
 @app.route('/api/status', methods=['POST'])
 def update_status():
     """
@@ -302,6 +352,7 @@ def update_status():
     
     return jsonify({"error": "Unknown MAC"}), 404
 
+
 @app.route('/api/hosts')
 def list_hosts():
     """Return all registered hosts and their status"""
@@ -312,6 +363,22 @@ def list_hosts():
         entry['deployment_status'] = deployment_status.get(mac, {"status": "pending"})
         result.append(entry)
     return jsonify(result)
+
+
+@app.route('/api/scripts')
+def list_scripts():
+    """Return list of available scripts"""
+    scripts = []
+    if os.path.exists(DASHBOARD_DIR):
+        for f in os.listdir(DASHBOARD_DIR):
+            if f.endswith('.sh'):
+                scripts.append({
+                    "name": f,
+                    "url": f"/{f}",
+                    "size": os.path.getsize(os.path.join(DASHBOARD_DIR, f))
+                })
+    return jsonify(scripts)
+
 
 @app.route('/api/sign-certs', methods=['POST'])
 def sign_certs():
@@ -327,6 +394,7 @@ def sign_certs():
         log_activity(f"Failed to sign certs: {e}", "error")
         return jsonify({"error": str(e)}), 500
 
+
 @app.route('/api/reset', methods=['POST'])
 def reset_status():
     """Reset all deployment status"""
@@ -334,6 +402,7 @@ def reset_status():
     deployment_status = {}
     log_activity("Reset all deployment status", "info")
     return jsonify({"message": "Status reset"})
+
 
 @app.route('/api/bootstrap/<os_type>')
 def get_bootstrap_script(os_type):
@@ -381,18 +450,6 @@ echo "${PUPPET_SERVER} ${PUPPET_FQDN} puppet-master puppet" >> /etc/hosts
         return "Unknown OS", 404
     
     return script, 200, {'Content-Type': 'text/plain'}
-
-
-# Serve bootstrap scripts
-@app.route('/bootstrap')
-def serve_bootstrap():
-    with open('/opt/lab3-dashboard/bootstrap.sh', 'r') as f:
-        return f.read(), 200, {'Content-Type': 'text/plain'}
-
-@app.route('/auto-setup.sh')
-def serve_auto_setup():
-    with open('/opt/lab3-dashboard/auto-setup.sh', 'r') as f:
-        return f.read(), 200, {'Content-Type': 'text/plain'}
 
 
 if __name__ == '__main__':
