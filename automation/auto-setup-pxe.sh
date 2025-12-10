@@ -4,7 +4,7 @@
 # Grupp 2 SN24
 #
 # This script automatically configures the PXE server for Branch A
-# Run after basic Debian install with correct MAC address (0c:20:01:00:00:10)
+# Includes NAT gateway for thin-client internet access during installation
 #
 # Usage: curl -s http://192.168.122.127:5000/auto-setup-pxe.sh | bash
 #===============================================================================
@@ -50,7 +50,8 @@ update_status() {
 
 echo ""
 echo "╔═══════════════════════════════════════════════════════════════╗"
-echo "║       Lab 3 - PXE Server Auto Setup                           ║"
+echo "║       Lab 3 - PXE Server Auto Setup v2.0                      ║"
+echo "║              (With NAT Gateway)                               ║"
 echo "║                    Grupp 2 SN24                               ║"
 echo "╚═══════════════════════════════════════════════════════════════╝"
 echo ""
@@ -122,13 +123,37 @@ update_status "configuring" "network configured"
 log_info "Installing PXE packages..."
 apt-get update
 apt-get install -y -o Dpkg::Options::=--force-confdef \
-    isc-dhcp-server tftpd-hpa apache2 pxelinux syslinux-common wget curl git
+    isc-dhcp-server tftpd-hpa apache2 pxelinux syslinux-common wget curl git iptables
 
 log_success "Packages installed"
 update_status "configuring" "packages installed"
 
 #===============================================================================
-# Step 6: Configure DHCP server
+# Step 6: Configure NAT Gateway (for thin-client internet access)
+#===============================================================================
+log_info "Configuring NAT gateway..."
+
+# Enable IP forwarding
+echo 1 > /proc/sys/net/ipv4/ip_forward
+if ! grep -q "net.ipv4.ip_forward=1" /etc/sysctl.conf; then
+    echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+fi
+
+# Setup NAT masquerading
+iptables -t nat -A POSTROUTING -o ens5 -j MASQUERADE
+iptables -A FORWARD -i ens4 -o ens5 -j ACCEPT
+iptables -A FORWARD -i ens5 -o ens4 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# Make iptables rules persistent
+echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
+echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
+apt-get install -y iptables-persistent
+netfilter-persistent save 2>/dev/null || true
+
+log_success "NAT gateway configured"
+
+#===============================================================================
+# Step 7: Configure DHCP server (PXE-server as gateway for NAT)
 #===============================================================================
 log_info "Configuring DHCP server..."
 cat > /etc/dhcp/dhcpd.conf << EOF
@@ -140,7 +165,7 @@ authoritative;
 
 subnet 10.20.1.0 netmask 255.255.255.0 {
   range 10.20.1.100 10.20.1.150;
-  option routers ${PXE_GATEWAY};
+  option routers ${PXE_IP};
   option broadcast-address 10.20.1.255;
   next-server ${PXE_IP};
   filename "pxelinux.0";
@@ -153,10 +178,24 @@ host thin-client-a {
 EOF
 
 echo 'INTERFACESv4="ens4"' > /etc/default/isc-dhcp-server
-log_success "DHCP configured"
+log_success "DHCP configured (gateway: ${PXE_IP} for NAT)"
 
 #===============================================================================
-# Step 7: Setup TFTP
+# Step 8: Configure TFTP server (CRITICAL: correct directory path)
+#===============================================================================
+log_info "Configuring TFTP server..."
+
+cat > /etc/default/tftpd-hpa << 'EOF'
+TFTP_USERNAME="tftp"
+TFTP_DIRECTORY="/var/lib/tftpboot"
+TFTP_ADDRESS=":69"
+TFTP_OPTIONS="--secure"
+EOF
+
+log_success "TFTP configured"
+
+#===============================================================================
+# Step 9: Setup TFTP boot environment
 #===============================================================================
 log_info "Setting up TFTP boot environment..."
 mkdir -p /var/lib/tftpboot/pxelinux.cfg
@@ -188,11 +227,11 @@ LABEL local
   LOCALBOOT 0
 EOF
 
-log_success "TFTP configured"
+log_success "TFTP boot environment configured"
 update_status "configuring" "tftp configured"
 
 #===============================================================================
-# Step 8: Download Debian netboot files
+# Step 10: Download Debian netboot files
 #===============================================================================
 log_info "Downloading Debian netboot files (this may take a minute)..."
 cd /var/lib/tftpboot/debian
@@ -201,18 +240,18 @@ wget -q http://deb.debian.org/debian/dists/bookworm/main/installer-amd64/current
 log_success "Netboot files downloaded"
 
 #===============================================================================
-# Step 9: Create preseed file
+# Step 11: Create preseed file (fixed syntax - no nested heredoc)
 #===============================================================================
 log_info "Creating preseed file for thin-client..."
 mkdir -p /var/www/html/preseed
 
-cat > /var/www/html/preseed/thin-client.cfg << 'PRESEEDEOF'
+cat > /var/www/html/preseed/thin-client.cfg << 'EOF'
 # Localization
 d-i debian-installer/locale string sv_SE.UTF-8
 d-i keyboard-configuration/xkb-keymap select se
 
-# Network
-d-i netcfg/choose_interface select auto
+# Network - use ens4 (connected to LAN-SW-A)
+d-i netcfg/choose_interface select ens4
 d-i netcfg/get_hostname string thin-client-a
 d-i netcfg/get_domain string branch-a.lab3.local
 
@@ -253,29 +292,27 @@ popularity-contest popularity-contest/participate boolean false
 d-i grub-installer/only_debian boolean true
 d-i grub-installer/bootdev string default
 
-# Post-install: Network + Puppet
+# Post-install (fixed syntax - no nested heredoc)
 d-i preseed/late_command string \
-  in-target bash -c 'cat > /etc/network/interfaces << NETCFG
-auto lo
-iface lo inet loopback
-
-auto ens4
-iface ens4 inet dhcp
-    up ip route add 10.10.0.0/24 via 10.20.1.1
-NETCFG'; \
+  in-target bash -c 'echo "auto lo" > /etc/network/interfaces'; \
+  in-target bash -c 'echo "iface lo inet loopback" >> /etc/network/interfaces'; \
+  in-target bash -c 'echo "" >> /etc/network/interfaces'; \
+  in-target bash -c 'echo "auto ens4" >> /etc/network/interfaces'; \
+  in-target bash -c 'echo "iface ens4 inet dhcp" >> /etc/network/interfaces'; \
+  in-target bash -c 'echo "    up ip route add 10.10.0.0/24 via 10.20.1.1" >> /etc/network/interfaces'; \
   in-target bash -c 'cd /tmp && wget -q https://apt.puppet.com/puppet8-release-bookworm.deb && dpkg -i puppet8-release-bookworm.deb && apt-get update && apt-get install -y puppet-agent'; \
   in-target bash -c 'echo "192.168.122.127 puppet-master.lab3.local puppet-master puppet" >> /etc/hosts'; \
   in-target bash -c 'mkdir -p /etc/puppetlabs/puppet && echo -e "[main]\nserver = puppet-master.lab3.local" > /etc/puppetlabs/puppet/puppet.conf'; \
   in-target bash -c 'echo "debian ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers'
 
 d-i finish-install/reboot_in_progress note
-PRESEEDEOF
+EOF
 
 log_success "Preseed file created"
 update_status "configuring" "preseed created"
 
 #===============================================================================
-# Step 10: Start services
+# Step 12: Start services
 #===============================================================================
 log_info "Starting PXE services..."
 systemctl enable isc-dhcp-server tftpd-hpa apache2
@@ -286,7 +323,7 @@ systemctl restart isc-dhcp-server
 log_success "Services started"
 
 #===============================================================================
-# Step 11: Install Puppet agent
+# Step 13: Install Puppet agent
 #===============================================================================
 log_info "Installing Puppet agent..."
 sed -i '/puppet-master/d' /etc/hosts
@@ -307,13 +344,13 @@ EOF
 log_success "Puppet agent installed"
 
 #===============================================================================
-# Step 12: Register with Puppet
+# Step 14: Register with Puppet
 #===============================================================================
 log_info "Registering with Puppet master..."
 /opt/puppetlabs/bin/puppet agent --test --waitforcert 30 || true
 
 #===============================================================================
-# Step 13: Verify setup
+# Step 15: Verify setup
 #===============================================================================
 log_info "Verifying PXE setup..."
 echo ""
@@ -329,6 +366,11 @@ echo "Files:"
 [ -f /var/lib/tftpboot/debian/initrd.gz ] && echo "  debian/initrd.gz: ✓" || echo "  debian/initrd.gz: ✗"
 [ -f /var/www/html/preseed/thin-client.cfg ] && echo "  preseed: ✓" || echo "  preseed: ✗"
 
+echo ""
+echo "NAT Status:"
+cat /proc/sys/net/ipv4/ip_forward | grep -q 1 && echo "  IP Forward: ✓ Enabled" || echo "  IP Forward: ✗ Disabled"
+iptables -t nat -L POSTROUTING 2>/dev/null | grep -q MASQUERADE && echo "  NAT Masquerade: ✓ Active" || echo "  NAT Masquerade: ✗ Inactive"
+
 #===============================================================================
 # Done!
 #===============================================================================
@@ -340,6 +382,7 @@ echo "║              PXE SERVER SETUP COMPLETE! ✓                     ║"
 echo "╠═══════════════════════════════════════════════════════════════╣"
 echo "║  Hostname: pxe-server                                         ║"
 echo "║  IP: ${PXE_IP}                                            ║"
+echo "║  NAT Gateway: Active (ens5 → internet)                       ║"
 echo "║  DHCP Range: 10.20.1.100 - 10.20.1.150                       ║"
 echo "║  Thin-client MAC: ${THIN_CLIENT_MAC}                       ║"
 echo "║  Thin-client IP: ${THIN_CLIENT_IP}                            ║"
@@ -348,5 +391,6 @@ echo "║  NEXT: Create thin-client-a VM in GNS3                        ║"
 echo "║  - MAC: 0c:20:01:00:00:20                                     ║"
 echo "║  - Boot: Network first                                        ║"
 echo "║  - Connect ens4 to LAN-SW-A                                   ║"
+echo "║  - It will auto-install Debian via PXE!                       ║"
 echo "╚═══════════════════════════════════════════════════════════════╝"
 echo ""
