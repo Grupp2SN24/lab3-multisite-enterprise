@@ -42,7 +42,478 @@ Varje VM har **två nätverkskort**:
 
 ---
 
-# 🚀 Deployment
+## Steg 1: Provider Core
+
+Provider core är "internet-leverantören" som kopplar ihop alla sites. Alla PE-routrar kör iBGP sinsemellan.
+
+### 1.1 Skapa routrar och koppla ihop
+
+**Kopplingar:**
+```
+PE1 Gi0/1 ↔ PE-2 Gi0/1     (10.255.0.0/30)
+PE1 Gi0/2 ↔ PE-A Gi0/1     (10.255.0.4/30)
+PE-2 Gi0/2 ↔ PE-B Gi0/1    (10.255.0.8/30)
+```
+
+### 1.2 Konfigurera PE1
+
+Öppna konsol till PE1 och klistra in:
+
+```
+enable
+conf t
+
+hostname PE1
+
+bfd slow-timers 2000
+
+interface Loopback0
+ ip address 2.2.2.1 255.255.255.255
+
+interface GigabitEthernet0/0
+ description Link to CE-DC
+ ip address 192.168.100.2 255.255.255.252
+ bfd interval 300 min_rx 300 multiplier 3
+ no shutdown
+
+interface GigabitEthernet0/1
+ description Link to PE-2
+ ip address 10.255.0.1 255.255.255.252
+ no shutdown
+
+interface GigabitEthernet0/2
+ description Link to PE-A
+ ip address 10.255.0.5 255.255.255.252
+ no shutdown
+
+router ospf 1
+ router-id 2.2.2.1
+ network 2.2.2.1 0.0.0.0 area 0
+ network 10.255.0.0 0.0.0.3 area 0
+ network 10.255.0.4 0.0.0.3 area 0
+
+router bgp 65001
+ bgp router-id 2.2.2.1
+ bgp log-neighbor-changes
+ neighbor 2.2.2.2 remote-as 65001
+ neighbor 2.2.2.2 update-source Loopback0
+ neighbor 2.2.2.10 remote-as 65001
+ neighbor 2.2.2.10 update-source Loopback0
+ neighbor 2.2.2.11 remote-as 65001
+ neighbor 2.2.2.11 update-source Loopback0
+ neighbor 192.168.100.1 remote-as 65000
+ neighbor 192.168.100.1 description CE-DC
+ neighbor 192.168.100.1 fall-over bfd
+ address-family ipv4
+  neighbor 2.2.2.2 activate
+  neighbor 2.2.2.2 next-hop-self
+  neighbor 2.2.2.10 activate
+  neighbor 2.2.2.10 next-hop-self
+  neighbor 2.2.2.11 activate
+  neighbor 2.2.2.11 next-hop-self
+  neighbor 192.168.100.1 activate
+  neighbor 192.168.100.1 prefix-list FROM-DC in
+  neighbor 192.168.100.1 maximum-prefix 20 80 warning-only
+ exit-address-family
+
+ip prefix-list FROM-DC seq 10 permit 10.0.0.0/24
+ip prefix-list FROM-DC seq 20 permit 10.10.0.0/24
+ip prefix-list FROM-DC seq 30 permit 10.20.0.0/24
+ip prefix-list FROM-DC seq 1000 deny 0.0.0.0/0 le 32
+
+end
+write memory
+```
+
+### 1.3 Konfigurera PE-2
+
+```
+enable
+conf t
+
+hostname PE-2
+
+bfd slow-timers 2000
+
+interface Loopback0
+ ip address 2.2.2.2 255.255.255.255
+
+interface GigabitEthernet0/0
+ description Link to CE-DC
+ ip address 192.168.100.6 255.255.255.252
+ bfd interval 300 min_rx 300 multiplier 3
+ no shutdown
+
+interface GigabitEthernet0/1
+ description Link to PE1
+ ip address 10.255.0.2 255.255.255.252
+ no shutdown
+
+interface GigabitEthernet0/2
+ description Link to PE-B
+ ip address 10.255.0.9 255.255.255.252
+ no shutdown
+
+router ospf 1
+ router-id 2.2.2.2
+ network 2.2.2.2 0.0.0.0 area 0
+ network 10.255.0.0 0.0.0.3 area 0
+ network 10.255.0.8 0.0.0.3 area 0
+
+router bgp 65001
+ bgp router-id 2.2.2.2
+ bgp log-neighbor-changes
+ neighbor 2.2.2.1 remote-as 65001
+ neighbor 2.2.2.1 update-source Loopback0
+ neighbor 2.2.2.10 remote-as 65001
+ neighbor 2.2.2.10 update-source Loopback0
+ neighbor 2.2.2.11 remote-as 65001
+ neighbor 2.2.2.11 update-source Loopback0
+ neighbor 192.168.100.5 remote-as 65000
+ neighbor 192.168.100.5 description CE-DC
+ neighbor 192.168.100.5 fall-over bfd
+ address-family ipv4
+  neighbor 2.2.2.1 activate
+  neighbor 2.2.2.1 next-hop-self
+  neighbor 2.2.2.10 activate
+  neighbor 2.2.2.10 next-hop-self
+  neighbor 2.2.2.11 activate
+  neighbor 2.2.2.11 next-hop-self
+  neighbor 192.168.100.5 activate
+  neighbor 192.168.100.5 prefix-list FROM-DC in
+  neighbor 192.168.100.5 maximum-prefix 20 80 warning-only
+ exit-address-family
+
+ip prefix-list FROM-DC seq 10 permit 10.0.0.0/24
+ip prefix-list FROM-DC seq 20 permit 10.10.0.0/24
+ip prefix-list FROM-DC seq 30 permit 10.20.0.0/24
+ip prefix-list FROM-DC seq 1000 deny 0.0.0.0/0 le 32
+
+end
+write memory
+```
+
+### 1.4 Konfigurera PE-A
+
+```
+enable
+conf t
+
+hostname PE-A
+
+bfd slow-timers 2000
+
+interface Loopback0
+ ip address 2.2.2.10 255.255.255.255
+
+interface GigabitEthernet0/0
+ description Link to CE-A
+ ip address 192.168.101.2 255.255.255.252
+ bfd interval 300 min_rx 300 multiplier 3
+ no shutdown
+
+interface GigabitEthernet0/1
+ description Link to PE1
+ ip address 10.255.0.6 255.255.255.252
+ no shutdown
+
+router ospf 1
+ router-id 2.2.2.10
+ network 2.2.2.10 0.0.0.0 area 0
+ network 10.255.0.4 0.0.0.3 area 0
+
+router bgp 65001
+ bgp router-id 2.2.2.10
+ bgp log-neighbor-changes
+ neighbor 2.2.2.1 remote-as 65001
+ neighbor 2.2.2.1 update-source Loopback0
+ neighbor 2.2.2.2 remote-as 65001
+ neighbor 2.2.2.2 update-source Loopback0
+ neighbor 2.2.2.11 remote-as 65001
+ neighbor 2.2.2.11 update-source Loopback0
+ neighbor 192.168.101.1 remote-as 65000
+ neighbor 192.168.101.1 description CE-A
+ neighbor 192.168.101.1 fall-over bfd
+ address-family ipv4
+  redistribute connected
+  neighbor 2.2.2.1 activate
+  neighbor 2.2.2.1 next-hop-self
+  neighbor 2.2.2.2 activate
+  neighbor 2.2.2.2 next-hop-self
+  neighbor 2.2.2.11 activate
+  neighbor 2.2.2.11 next-hop-self
+  neighbor 192.168.101.1 activate
+  neighbor 192.168.101.1 prefix-list FROM-BRANCH-A in
+  neighbor 192.168.101.1 maximum-prefix 10 80 warning-only
+ exit-address-family
+
+ip prefix-list FROM-BRANCH-A seq 10 permit 10.0.1.0/24
+ip prefix-list FROM-BRANCH-A seq 20 permit 10.20.1.0/24
+ip prefix-list FROM-BRANCH-A seq 1000 deny 0.0.0.0/0 le 32
+
+end
+write memory
+```
+
+### 1.5 Konfigurera PE-B
+
+```
+enable
+conf t
+
+hostname PE-B
+
+bfd slow-timers 2000
+
+interface Loopback0
+ ip address 2.2.2.11 255.255.255.255
+
+interface GigabitEthernet0/0
+ description Link to CE-B
+ ip address 192.168.102.2 255.255.255.252
+ bfd interval 300 min_rx 300 multiplier 3
+ no shutdown
+
+interface GigabitEthernet0/1
+ description Link to PE-2
+ ip address 10.255.0.10 255.255.255.252
+ no shutdown
+
+router ospf 1
+ router-id 2.2.2.11
+ network 2.2.2.11 0.0.0.0 area 0
+ network 10.255.0.8 0.0.0.3 area 0
+
+router bgp 65001
+ bgp router-id 2.2.2.11
+ bgp log-neighbor-changes
+ neighbor 2.2.2.1 remote-as 65001
+ neighbor 2.2.2.1 update-source Loopback0
+ neighbor 2.2.2.2 remote-as 65001
+ neighbor 2.2.2.2 update-source Loopback0
+ neighbor 2.2.2.10 remote-as 65001
+ neighbor 2.2.2.10 update-source Loopback0
+ neighbor 192.168.102.1 remote-as 65000
+ neighbor 192.168.102.1 description CE-B
+ neighbor 192.168.102.1 fall-over bfd
+ address-family ipv4
+  neighbor 2.2.2.1 activate
+  neighbor 2.2.2.1 next-hop-self
+  neighbor 2.2.2.2 activate
+  neighbor 2.2.2.2 next-hop-self
+  neighbor 2.2.2.10 activate
+  neighbor 2.2.2.10 next-hop-self
+  neighbor 192.168.102.1 activate
+  neighbor 192.168.102.1 prefix-list FROM-BRANCH-B in
+  neighbor 192.168.102.1 maximum-prefix 10 80 warning-only
+ exit-address-family
+
+ip prefix-list FROM-BRANCH-B seq 10 permit 10.0.2.0/24
+ip prefix-list FROM-BRANCH-B seq 20 permit 10.20.2.0/24
+ip prefix-list FROM-BRANCH-B seq 1000 deny 0.0.0.0/0 le 32
+
+end
+write memory
+```
+
+### 1.6 Verifiera Provider Core
+
+Vänta någon minut så OSPF och BGP hinner konvergera, sedan:
+
+```
+show ip ospf neighbor
+show ip bgp summary
+```
+
+Alla iBGP-sessioner ska vara "Established".
+
+---
+
+## Steg 2: Datacenter
+
+CE-DC är hjärtat i nätverket. Den är dual-homed till både PE1 och PE2.
+
+### 2.1 Kopplingar
+
+```
+CE-DC Gi0/0 ↔ SERVICES-SW          (10.10.0.1/24)
+CE-DC Gi0/1 ↔ PE1 Gi0/0            (192.168.100.0/30)
+CE-DC Gi0/2 ↔ PE-2 Gi0/0           (192.168.100.4/30)
+CE-DC Gi0/3 ↔ (MGMT - ej använd)   (10.0.0.1/24)
+```
+
+### 2.2 Konfigurera CE-DC
+
+Det här är den längsta konfigurationen. Ta det lugnt och klistra in steg för steg.
+
+```
+enable
+conf t
+
+hostname CE-DC
+
+vrf definition MGMT
+ rd 65000:1
+ address-family ipv4
+ exit-address-family
+
+vrf definition SERVICES
+ rd 65000:2
+ address-family ipv4
+ exit-address-family
+
+vrf definition USER
+ rd 65000:3
+ address-family ipv4
+ exit-address-family
+
+interface Loopback0
+ ip address 1.1.1.1 255.255.255.255
+
+interface GigabitEthernet0/0
+ description SERVICES VRF Gateway
+ ip address 10.10.0.1 255.255.255.0
+ ip flow ingress
+ ip flow egress
+ no shutdown
+
+interface GigabitEthernet0/1
+ description Link to PE1
+ ip address 192.168.100.1 255.255.255.252
+ bfd interval 300 min_rx 300 multiplier 3
+ ip flow ingress
+ ip flow egress
+ no shutdown
+
+interface GigabitEthernet0/2
+ description Link to PE2
+ ip address 192.168.100.5 255.255.255.252
+ bfd interval 300 min_rx 300 multiplier 3
+ ip flow ingress
+ ip flow egress
+ no shutdown
+
+interface GigabitEthernet0/3
+ description MGMT VRF
+ vrf forwarding MGMT
+ ip address 10.0.0.1 255.255.255.0
+ no shutdown
+
+! NetFlow
+ip flow-export version 9
+ip flow-export destination 10.10.0.10 2055
+ip flow-export source Loopback0
+
+! BGP Prefix-lists
+ip prefix-list DC-OUT seq 10 permit 10.0.0.0/24
+ip prefix-list DC-OUT seq 20 permit 10.10.0.0/24
+ip prefix-list DC-OUT seq 30 permit 10.20.0.0/24
+ip prefix-list DC-OUT seq 1000 deny 0.0.0.0/0 le 32
+
+ip prefix-list DC-IN seq 10 permit 10.0.1.0/24
+ip prefix-list DC-IN seq 20 permit 10.0.2.0/24
+ip prefix-list DC-IN seq 30 permit 10.20.1.0/24
+ip prefix-list DC-IN seq 40 permit 10.20.2.0/24
+ip prefix-list DC-IN seq 50 permit 2.2.2.0/24 le 32
+ip prefix-list DC-IN seq 60 permit 10.255.0.0/16 le 30
+ip prefix-list DC-IN seq 70 permit 192.168.101.0/24 le 30
+ip prefix-list DC-IN seq 80 permit 192.168.102.0/24 le 30
+ip prefix-list DC-IN seq 1000 deny 0.0.0.0/0 le 32
+
+! Traffic Engineering
+route-map SET-COMMUNITY-PE1 permit 10
+ set community 65000:110
+
+route-map SET-COMMUNITY-PE2 permit 10
+ set community 65000:120
+
+route-map PREFER-PE1 permit 10
+ set local-preference 150
+
+route-map PREFER-PE2 permit 10
+ set local-preference 100
+
+! BFD
+bfd slow-timers 2000
+
+router bgp 65000
+ bgp router-id 1.1.1.1
+ bgp log-neighbor-changes
+ neighbor 192.168.100.2 remote-as 65001
+ neighbor 192.168.100.2 description PE1
+ neighbor 192.168.100.2 fall-over bfd
+ neighbor 192.168.100.6 remote-as 65001
+ neighbor 192.168.100.6 description PE2
+ neighbor 192.168.100.6 fall-over bfd
+ address-family ipv4
+  network 10.0.0.0 mask 255.255.255.0
+  network 10.10.0.0 mask 255.255.255.0
+  network 10.20.0.0 mask 255.255.255.0
+  redistribute connected
+  neighbor 192.168.100.2 activate
+  neighbor 192.168.100.2 send-community
+  neighbor 192.168.100.2 allowas-in 2
+  neighbor 192.168.100.2 prefix-list DC-IN in
+  neighbor 192.168.100.2 prefix-list DC-OUT out
+  neighbor 192.168.100.2 route-map PREFER-PE1 in
+  neighbor 192.168.100.2 route-map SET-COMMUNITY-PE1 out
+  neighbor 192.168.100.2 maximum-prefix 50 80 warning-only
+  neighbor 192.168.100.6 activate
+  neighbor 192.168.100.6 send-community
+  neighbor 192.168.100.6 allowas-in 2
+  neighbor 192.168.100.6 prefix-list DC-IN in
+  neighbor 192.168.100.6 prefix-list DC-OUT out
+  neighbor 192.168.100.6 route-map PREFER-PE2 in
+  neighbor 192.168.100.6 route-map SET-COMMUNITY-PE2 out
+  neighbor 192.168.100.6 maximum-prefix 50 80 warning-only
+ exit-address-family
+ address-family ipv4 vrf MGMT
+  redistribute connected
+ exit-address-family
+
+! Static routes
+ip route 2.2.2.0 255.255.255.0 192.168.100.2
+ip route 2.2.2.0 255.255.255.0 192.168.100.6 10
+ip route 10.0.0.0 255.255.255.0 Null0
+ip route 10.20.0.0 255.255.255.0 Null0
+ip route 10.255.0.0 255.255.0.0 192.168.100.2
+ip route 10.255.0.0 255.255.0.0 192.168.100.6 10
+ip route 192.168.101.0 255.255.255.0 192.168.100.2
+ip route 192.168.101.0 255.255.255.0 192.168.100.6 10
+ip route 192.168.102.0 255.255.255.0 192.168.100.2
+ip route 192.168.102.0 255.255.255.0 192.168.100.6 10
+
+! SNMPv3
+snmp-server group LAB3-RO v3 priv read LAB3-VIEW access 99
+snmp-server view LAB3-VIEW iso included
+snmp-server user snmpuser LAB3-RO v3 auth sha Lab3SNMPauth! priv aes 128 Lab3SNMPpriv!
+snmp-server location "Datacenter DC - Grupp2 SN24"
+snmp-server contact "admin@grupp2.lab3.local"
+
+access-list 99 permit 10.0.0.0 0.0.0.255
+
+! Syslog
+logging source-interface Loopback0
+logging host 10.0.0.10 vrf MGMT
+
+end
+write memory
+```
+
+### 2.3 Verifiera CE-DC
+
+```
+show ip bgp summary
+```
+
+Du ska se två sessioner (PE1 och PE2), båda "Established".
+
+**OBS! Viktigt:** `allowas-in 2` är nödvändigt! Utan detta blockeras routes från branches eftersom de har samma AS-nummer (65000).
+
+
+
+
+# Deployment
 
 ## Ordning
 
@@ -56,11 +527,6 @@ Varje VM har **två nätverkskort**:
 
 ## Del 1: Routrar (Cisco)
 
-Routrarna konfigureras manuellt med copy-paste. Se fullständiga konfigurationer i:
-- `configs/provider/` - PE1, PE2, PE-A, PE-B
-- `configs/dc/routers/` - CE-DC
-- `configs/branch-a/` - CE-A
-- `configs/branch-b/` - CE-B
 
 **Verifiera att BGP är uppe innan du fortsätter:**
 ```
