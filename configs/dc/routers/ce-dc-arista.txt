@@ -1,0 +1,164 @@
+! ============================================
+! CE-DC - Arista EOS Configuration
+! Grupp 2 SN24 - Lab 3 Multi-Site Enterprise
+! ============================================
+! 
+! SIMPLIFIED DESIGN (v3.0):
+! - All DC servers on 10.10.0.0/24 (including puppet-master at 10.10.0.5)
+! - No VRF complexity for demo purposes
+! - Dual-homed to PE1 and PE2
+!
+! GNS3 INTERFACE MAPPING:
+!   e0 → Management1 → Service-SW (10.10.0.1)
+!   e1 → Ethernet1   → PE1 (192.168.100.1)
+!   e2 → Ethernet2   → PE2 (192.168.100.5)
+!
+! ============================================
+
+! Step 1: Basic setup (login as admin, no password)
+! Run: zerotouch cancel
+! Run: enable
+! Run: configure terminal
+
+hostname CE-DC
+
+! Enable IP routing
+ip routing
+
+! Loopback for router-id and management
+interface Loopback0
+   ip address 1.1.1.1/32
+
+! SERVICES Network Gateway (connects to Service-SW)
+! This is where all DC servers live: 10.10.0.0/24
+interface Management1
+   description SERVICES Gateway - Service-SW
+   ip address 10.10.0.1/24
+   no shutdown
+
+! Link to PE1 (Primary uplink)
+interface Ethernet1
+   description Link to PE1
+   no switchport
+   ip address 192.168.100.1/30
+   bfd interval 300 min-rx 300 multiplier 3
+   no shutdown
+
+! Link to PE2 (Secondary uplink)
+interface Ethernet2
+   description Link to PE2
+   no switchport
+   ip address 192.168.100.5/30
+   bfd interval 300 min-rx 300 multiplier 3
+   no shutdown
+
+! ============================================
+! BGP CONFIGURATION
+! ============================================
+
+! Prefix-lists for security
+ip prefix-list DC-OUT seq 10 permit 10.10.0.0/24
+ip prefix-list DC-OUT seq 20 permit 10.20.0.0/22 le 24
+ip prefix-list DC-OUT seq 1000 deny 0.0.0.0/0 le 32
+
+ip prefix-list DC-IN seq 10 permit 10.20.1.0/24
+ip prefix-list DC-IN seq 20 permit 10.20.2.0/24
+ip prefix-list DC-IN seq 30 permit 2.2.2.0/24 le 32
+ip prefix-list DC-IN seq 40 permit 10.255.0.0/16 le 30
+ip prefix-list DC-IN seq 50 permit 192.168.101.0/30
+ip prefix-list DC-IN seq 60 permit 192.168.102.0/30
+ip prefix-list DC-IN seq 1000 deny 0.0.0.0/0 le 32
+
+! Route-maps for traffic engineering
+route-map SET-COMMUNITY-PE1 permit 10
+   set community 65000:110
+
+route-map SET-COMMUNITY-PE2 permit 10
+   set community 65000:120
+
+route-map PREFER-PE1 permit 10
+   set local-preference 150
+
+route-map PREFER-PE2 permit 10
+   set local-preference 100
+
+! BGP Configuration
+router bgp 65000
+   router-id 1.1.1.1
+   maximum-paths 2
+   
+   ! PE1 neighbor (primary)
+   neighbor 192.168.100.2 remote-as 65001
+   neighbor 192.168.100.2 description PE1
+   neighbor 192.168.100.2 bfd
+   neighbor 192.168.100.2 allowas-in 2
+   neighbor 192.168.100.2 send-community
+   neighbor 192.168.100.2 prefix-list DC-IN in
+   neighbor 192.168.100.2 prefix-list DC-OUT out
+   neighbor 192.168.100.2 route-map PREFER-PE1 in
+   neighbor 192.168.100.2 route-map SET-COMMUNITY-PE1 out
+   neighbor 192.168.100.2 maximum-routes 50 warning-only
+   
+   ! PE2 neighbor (secondary)
+   neighbor 192.168.100.6 remote-as 65001
+   neighbor 192.168.100.6 description PE2
+   neighbor 192.168.100.6 bfd
+   neighbor 192.168.100.6 allowas-in 2
+   neighbor 192.168.100.6 send-community
+   neighbor 192.168.100.6 prefix-list DC-IN in
+   neighbor 192.168.100.6 prefix-list DC-OUT out
+   neighbor 192.168.100.6 route-map PREFER-PE2 in
+   neighbor 192.168.100.6 route-map SET-COMMUNITY-PE2 out
+   neighbor 192.168.100.6 maximum-routes 50 warning-only
+   
+   ! Networks to advertise
+   network 10.10.0.0/24
+   redistribute connected
+
+! ============================================
+! STATIC ROUTES (backup)
+! ============================================
+
+! Routes to provider core (for OSPF loopbacks)
+ip route 2.2.2.0/24 192.168.100.2
+ip route 2.2.2.0/24 192.168.100.6 10
+
+! Null routes for summarization
+ip route 10.10.0.0/24 Null0
+
+! ============================================
+! SNMPv3 CONFIGURATION
+! ============================================
+snmp-server view LAB3-VIEW iso included
+snmp-server group LAB3-RO v3 priv read LAB3-VIEW
+snmp-server user snmpuser LAB3-RO v3 auth sha Lab3SNMPauth! priv aes Lab3SNMPpriv!
+snmp-server location "Datacenter DC - Grupp2 SN24"
+snmp-server contact "admin@grupp2.lab3.local"
+
+! ============================================
+! sFlow (Arista equivalent of NetFlow)
+! ============================================
+sflow sample 1000
+sflow destination 10.10.0.10
+sflow source-interface Loopback0
+sflow run
+
+! ============================================
+! SYSLOG
+! ============================================
+logging host 10.10.0.5
+logging source-interface Loopback0
+
+! Save configuration
+end
+write
+
+! ============================================
+! VERIFICATION COMMANDS
+! ============================================
+! show ip bgp summary
+! show ip route
+! show interfaces status
+! show ip interface brief
+! ============================================
+

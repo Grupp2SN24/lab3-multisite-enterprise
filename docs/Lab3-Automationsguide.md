@@ -716,7 +716,7 @@ systemctl status lab3-dashboard
 curl http://localhost:5000
 ```
 
-**Dashboard finns på:** `http://192.168.122.127:5000`
+**Dashboard finns på:** `http://10.10.0.5:5000` (STATISK IP - ändras aldrig!)
 
 ---
 
@@ -736,7 +736,7 @@ EOF
 ifup ens5
 
 # 2. Kör bootstrap
-curl -s http://192.168.122.127:5000/auto-setup.sh | bash
+curl -s http://10.10.0.5:5000/auto-setup.sh | bash
 ```
 
 **AlmaLinux-servrar (Terminal-1, Terminal-2):**
@@ -746,7 +746,7 @@ curl -s http://192.168.122.127:5000/auto-setup.sh | bash
 dhclient ens5
 
 # 2. Kör bootstrap
-curl -s http://192.168.122.127:5000/auto-setup-alma.sh | bash
+curl -s http://10.10.0.5:5000/auto-setup-alma.sh | bash
 ```
 
 | Enhet | MAC | Script |
@@ -829,7 +829,7 @@ ping -c 2 8.8.8.8
 ## Steg 5: Kör bootstrap-scriptet
 
 ```bash
-curl -s http://192.168.122.127:5000/auto-setup-pxe.sh | bash
+curl -s http://10.10.0.5:5000/auto-setup-pxe.sh | bash
 ```
 
 Scriptet gör automatiskt:

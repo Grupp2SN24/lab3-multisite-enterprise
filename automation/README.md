@@ -34,14 +34,14 @@ Detta automationssystem gör det möjligt att deploya hela labbmiljön med **min
 ### Steg 1: Installera Dashboard på Puppet-Master
 
 ```bash
-# På puppet-master (192.168.122.40 / 10.0.0.10)
+# På puppet-master (10.10.0.40 / 10.0.0.10)
 cd /tmp
 git clone https://github.com/Grupp2SN24/lab3-multisite-enterprise.git
 cd lab3-multisite-enterprise/automation
 sudo bash install-dashboard.sh
 ```
 
-Dashboard är nu tillgänglig på: **http://192.168.122.40:5000**
+Dashboard är nu tillgänglig på: **http://10.10.0.40:5000**
 
 ### Steg 2: Konfigurera MAC-adresser i GNS3
 
@@ -80,7 +80,7 @@ Varje VM behöver två nätverkskort:
 Starta VM:en och kör:
 
 ```bash
-curl -s http://192.168.122.40:5000/bootstrap | bash
+curl -s http://10.10.0.40:5000/bootstrap | bash
 ```
 
 Det är allt! Scriptet:
@@ -98,14 +98,14 @@ Om dashboard inte är tillgänglig:
 ```bash
 # Debian
 curl -s https://raw.githubusercontent.com/Grupp2SN24/lab3-multisite-enterprise/main/automation/auto-setup.sh | \
-    DASHBOARD_URL=http://192.168.122.40:5000 bash
+    DASHBOARD_URL=http://10.10.0.40:5000 bash
 ```
 
 ---
 
 ## 🖥️ Dashboard
 
-Öppna **http://192.168.122.40:5000** i din webbläsare för att se:
+Öppna **http://10.10.0.40:5000** i din webbläsare för att se:
 
 - **Status för alla hosts** - Pending/Configuring/Ready
 - **Real-time uppdateringar** - Auto-refresh var 5:e sekund
@@ -147,7 +147,7 @@ curl -s https://raw.githubusercontent.com/Grupp2SN24/lab3-multisite-enterprise/m
 2. **Starta en ny VM** i GNS3 (t.ex. web-3)
 3. **Kör bootstrap:**
    ```bash
-   curl -s http://192.168.122.40:5000/bootstrap | bash
+   curl -s http://10.10.0.40:5000/bootstrap | bash
    ```
 4. **Visa Dashboard** - Status ändras: Pending → Configuring → Ready
 5. **Signera Puppet-cert** via Dashboard
@@ -160,10 +160,10 @@ curl -s https://raw.githubusercontent.com/Grupp2SN24/lab3-multisite-enterprise/m
 
 ```bash
 # Terminal 1: Öppna Dashboard i browser
-http://192.168.122.40:5000
+http://10.10.0.40:5000
 
 # Terminal 2-4: Parallellt på flera VMs
-curl -s http://192.168.122.40:5000/bootstrap | bash
+curl -s http://10.10.0.40:5000/bootstrap | bash
 ```
 
 ---

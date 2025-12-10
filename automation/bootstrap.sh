@@ -5,14 +5,14 @@
 # Run this on ANY new VM (Debian or AlmaLinux) to auto-configure it.
 #
 # Usage:
-#   curl -s http://192.168.122.40:5000/bootstrap | bash
+#   curl -s http://10.10.0.40:5000/bootstrap | bash
 #
 # Or if dashboard not available, run with manual role:
 #   curl -s https://raw.githubusercontent.com/Grupp2SN24/lab3-multisite-enterprise/main/automation/auto-setup.sh | bash
 #===============================================================================
 
 # Try to get the full auto-setup script from dashboard
-DASHBOARD_URL="${DASHBOARD_URL:-http://192.168.122.40:5000}"
+DASHBOARD_URL="${DASHBOARD_URL:-http://10.10.0.40:5000}"
 
 echo "╔═══════════════════════════════════════════════════════════════╗"
 echo "║       Lab 3 - Quick Bootstrap                                 ║"

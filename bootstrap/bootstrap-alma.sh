@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-PUPPET_SERVER="192.168.122.40"
+PUPPET_SERVER="10.10.0.40"
 PUPPET_FQDN="puppet-master.lab3.local"
 echo "=== Installing Puppet Agent ==="
 rpm -Uvh https://yum.puppet.com/puppet8-release-el-9.noarch.rpm || true

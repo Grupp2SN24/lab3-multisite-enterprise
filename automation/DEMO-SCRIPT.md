@@ -22,7 +22,7 @@ show ip bgp summary
 ### 3. Starta Dashboard på Puppet-Master
 ```bash
 sudo systemctl start lab3-dashboard
-# Öppna http://192.168.122.40:5000 i browser
+# Öppna http://10.10.0.40:5000 i browser
 ```
 
 ---
@@ -59,7 +59,7 @@ show ip bgp community 65000:110
 ### Starta VM och kör bootstrap
 ```bash
 # I VM:en
-curl -s http://192.168.122.40:5000/bootstrap | bash
+curl -s http://10.10.0.40:5000/bootstrap | bash
 ```
 
 **Medan det körs, förklara:**

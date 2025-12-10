@@ -631,8 +631,8 @@ auto ens5
 iface ens5 inet dhcp
 EOF
 
-sed -i 's/192.168.122.40/192.168.122.128/g' /opt/lab3-dashboard/*.sh
-sed -i 's/192.168.122.127/192.168.122.128/g' /opt/lab3-dashboard/*.sh
+sed -i 's/10.10.0.40/10.10.0.128/g' /opt/lab3-dashboard/*.sh
+sed -i 's/10.10.0.127/10.10.0.128/g' /opt/lab3-dashboard/*.sh
 
 systemctl restart networking
 ```
@@ -755,13 +755,13 @@ Du ska se:
 
 Scripten har hårdkodade IP-adresser som måste uppdateras till din puppet-masters NAT-IP.
 ```bash
-# Kolla din NAT-IP (exempel: 192.168.122.128)
+# Kolla din NAT-IP (exempel: 10.10.0.128)
 ip addr show ens5 | grep inet
 
 # Ersätt gamla IP:er med din IP
 # (ändra .128 till din faktiska IP om den är annorlunda)
-sed -i 's/192.168.122.40/192.168.122.128/g' /opt/lab3-dashboard/*.sh
-sed -i 's/192.168.122.127/192.168.122.128/g' /opt/lab3-dashboard/*.sh
+sed -i 's/10.10.0.40/10.10.0.128/g' /opt/lab3-dashboard/*.sh
+sed -i 's/10.10.0.127/10.10.0.128/g' /opt/lab3-dashboard/*.sh
 ```
 
 > ⚠️ **VIKTIGT:** Om puppet-master startas om kan NAT-IP:n ändras! 

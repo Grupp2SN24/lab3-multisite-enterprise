@@ -32,7 +32,7 @@ netsh advfirewall firewall add rule name="Allow ICMPv4" protocol=icmpv4:any,any 
 ### 1. Edit hosts file (C:\Windows\System32\drivers\etc\hosts)
 Add this line:
 ```
-192.168.122.40 puppet-master.lab3.local puppet-master puppet
+10.10.0.5 puppet-master.lab3.local puppet-master puppet
 ```
 
 ### 2. Download and Install Puppet Agent

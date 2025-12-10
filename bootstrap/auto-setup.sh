@@ -18,8 +18,8 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Configuration
-DASHBOARD_URL="${DASHBOARD_URL:-http://192.168.122.127:5000}"
-PUPPET_SERVER="192.168.122.127"
+DASHBOARD_URL="${DASHBOARD_URL:-http://10.10.0.5:5000}"
+PUPPET_SERVER="10.10.0.5"
 PUPPET_FQDN="puppet-master.lab3.local"
 REPO_URL="https://github.com/Grupp2SN24/lab3-multisite-enterprise.git"
 

@@ -6,7 +6,7 @@
 # This script automatically configures the PXE server for Branch A
 # Includes NAT gateway for thin-client internet access during installation
 #
-# Usage: curl -s http://192.168.122.127:5000/auto-setup-pxe.sh | bash
+# Usage: curl -s http://10.10.0.5:5000/auto-setup-pxe.sh | bash
 #===============================================================================
 
 set -e
@@ -19,8 +19,8 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Configuration
-DASHBOARD_URL="${DASHBOARD_URL:-http://192.168.122.127:5000}"
-PUPPET_SERVER="192.168.122.127"
+DASHBOARD_URL="${DASHBOARD_URL:-http://10.10.0.5:5000}"
+PUPPET_SERVER="10.10.0.5"
 PUPPET_FQDN="puppet-master.lab3.local"
 
 # PXE Configuration
@@ -301,7 +301,7 @@ d-i preseed/late_command string \
   in-target bash -c 'echo "iface ens4 inet dhcp" >> /etc/network/interfaces'; \
   in-target bash -c 'echo "    up ip route add 10.10.0.0/24 via 10.20.1.1" >> /etc/network/interfaces'; \
   in-target bash -c 'cd /tmp && wget -q https://apt.puppet.com/puppet8-release-bookworm.deb && dpkg -i puppet8-release-bookworm.deb && apt-get update && apt-get install -y puppet-agent'; \
-  in-target bash -c 'echo "192.168.122.127 puppet-master.lab3.local puppet-master puppet" >> /etc/hosts'; \
+  in-target bash -c 'echo "10.10.0.5 puppet-master.lab3.local puppet-master puppet" >> /etc/hosts'; \
   in-target bash -c 'mkdir -p /etc/puppetlabs/puppet && echo -e "[main]\nserver = puppet-master.lab3.local" > /etc/puppetlabs/puppet/puppet.conf'; \
   in-target bash -c 'echo "debian ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers'
 

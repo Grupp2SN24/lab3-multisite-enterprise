@@ -1129,7 +1129,7 @@ d-i grub-installer/bootdev string default
 # Post-install script (Puppet + Network config)
 d-i preseed/late_command string \
   in-target bash -c 'cd /tmp && wget -q https://apt.puppet.com/puppet8-release-bookworm.deb && dpkg -i puppet8-release-bookworm.deb && apt-get update && apt-get install -y puppet-agent'; \
-  in-target bash -c 'echo "192.168.122.40 puppet-master.lab3.local puppet-master puppet" >> /etc/hosts'; \
+  in-target bash -c 'echo "10.10.0.40 puppet-master.lab3.local puppet-master puppet" >> /etc/hosts'; \
   in-target bash -c 'mkdir -p /etc/puppetlabs/puppet && echo -e "[main]\nserver = puppet-master.lab3.local" > /etc/puppetlabs/puppet/puppet.conf'; \
   in-target bash -c 'echo "debian ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers'; \
   in-target bash -c 'echo -e "auto lo\niface lo inet loopback\n\nauto ens3\niface ens3 inet dhcp" > /etc/network/interfaces'
@@ -1368,7 +1368,7 @@ Lycka till! 🚀
 | Parameter | Värde |
 |-----------|-------|
 | **URL** | https://puppet-master.lab3.local |
-| **Alternativ URL** | https://192.168.122.40 |
+| **Alternativ URL** | https://10.10.0.40 |
 | **Användarnamn** | admin |
 | **Lösenord** | Labpass123! |
 
@@ -1376,7 +1376,7 @@ Lycka till! 🚀
 
 Lägg till i `/etc/hosts`:
 ```bash
-echo "192.168.122.40 puppet-master.lab3.local puppet-master puppet" | sudo tee -a /etc/hosts
+echo "10.10.0.40 puppet-master.lab3.local puppet-master puppet" | sudo tee -a /etc/hosts
 ```
 
 Öppna sedan: https://puppet-master.lab3.local

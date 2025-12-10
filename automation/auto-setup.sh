@@ -21,8 +21,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-DASHBOARD_URL="${DASHBOARD_URL:-http://192.168.122.40:5000}"
-PUPPET_SERVER="192.168.122.40"
+DASHBOARD_URL="${DASHBOARD_URL:-http://10.10.0.5:5000}"
+PUPPET_SERVER="10.10.0.5"
 PUPPET_FQDN="puppet-master.lab3.local"
 
 #===============================================================================

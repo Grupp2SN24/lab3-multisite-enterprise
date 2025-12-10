@@ -322,7 +322,7 @@ def discover():
         "vrf": host['vrf'],
         "routes": vrf['routes'],
         "puppet_server": "puppet-master.lab3.local",
-        "puppet_ip": "192.168.122.40",
+        "puppet_ip": "10.10.0.5",
         "repo_url": "https://github.com/Grupp2SN24/lab3-multisite-enterprise.git"
     }
     
@@ -411,7 +411,7 @@ def get_bootstrap_script(os_type):
         script = """#!/bin/bash
 # Auto-generated bootstrap for Debian
 set -e
-PUPPET_SERVER="192.168.122.40"
+PUPPET_SERVER="10.10.0.5"
 PUPPET_FQDN="puppet-master.lab3.local"
 
 cd /tmp
@@ -432,7 +432,7 @@ echo "${PUPPET_SERVER} ${PUPPET_FQDN} puppet-master puppet" >> /etc/hosts
         script = """#!/bin/bash
 # Auto-generated bootstrap for AlmaLinux
 set -e
-PUPPET_SERVER="192.168.122.40"
+PUPPET_SERVER="10.10.0.5"
 PUPPET_FQDN="puppet-master.lab3.local"
 
 rpm -Uvh https://yum.puppet.com/puppet8-release-el-9.noarch.rpm || true
