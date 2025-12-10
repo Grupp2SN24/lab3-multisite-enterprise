@@ -342,67 +342,79 @@ CE-DC Gi0/2 ↔ PE-2 Gi0/0           (192.168.100.4/30)
 CE-DC Gi0/3 ↔ (MGMT - ej använd)   (10.0.0.1/24)
 ```
 
-### 2.2 Konfigurera CE-DC
+### 2.2 Konfigurera CE-DC --- DETTA ÄR EN ARISTA NU!
+```
 
-Det här är den längsta konfigurationen. Ta det lugnt och klistra in steg för steg.
+! INNAN DU KLISTRAR IN:
+! 1. Logga in: admin (inget lösenord)
+! 2. Kör: zerotouch cancel
+! 3. Kör: configure terminal
+! 4. Klistra in konfigurationen nedan
 
 ```
+
+```
+! ============================================
+! CE-DC - Arista EOS Configuration
+! Grupp 2 SN24
+! ============================================
+! 
+! GNS3 KABELDRAGNING:
+!   e0 → Management1 → SERVICES-SW
+!   e1 → Ethernet1   → PE1
+!   e2 → Ethernet2   → PE2  
+!   e3 → Ethernet3   → MGMT-SW (Puppet-Master)
+!
+! ============================================
+
 enable
-conf t
+configure terminal
 
 hostname CE-DC
 
-vrf definition MGMT
- rd 65000:1
- address-family ipv4
- exit-address-family
+! Enable IP routing (required on Arista!)
+ip routing
 
-vrf definition SERVICES
- rd 65000:2
- address-family ipv4
- exit-address-family
+! VRF Instances
+vrf instance MGMT
+vrf instance SERVICES
+vrf instance USER
 
-vrf definition USER
- rd 65000:3
- address-family ipv4
- exit-address-family
-
+! Loopback
 interface Loopback0
- ip address 1.1.1.1 255.255.255.255
+   ip address 1.1.1.1/32
 
-interface GigabitEthernet0/0
- description SERVICES VRF Gateway
- ip address 10.10.0.1 255.255.255.0
- ip flow ingress
- ip flow egress
- no shutdown
+! SERVICES Gateway (e0 i GNS3)
+interface Management1
+   description SERVICES VRF Gateway - to SERVICES-SW
+   ip address 10.10.0.1/24
 
-interface GigabitEthernet0/1
- description Link to PE1
- ip address 192.168.100.1 255.255.255.252
- bfd interval 300 min_rx 300 multiplier 3
- ip flow ingress
- ip flow egress
- no shutdown
+! Link to PE1 (e1 i GNS3)
+interface Ethernet1
+   description Link to PE1
+   no switchport
+   ip address 192.168.100.1/30
+   bfd interval 300 min-rx 300 multiplier 3
 
-interface GigabitEthernet0/2
- description Link to PE2
- ip address 192.168.100.5 255.255.255.252
- bfd interval 300 min_rx 300 multiplier 3
- ip flow ingress
- ip flow egress
- no shutdown
+! Link to PE2 (e2 i GNS3)
+interface Ethernet2
+   description Link to PE2
+   no switchport
+   ip address 192.168.100.5/30
+   bfd interval 300 min-rx 300 multiplier 3
 
-interface GigabitEthernet0/3
- description MGMT VRF
- vrf forwarding MGMT
- ip address 10.0.0.1 255.255.255.0
- no shutdown
+! MGMT VRF (e3 i GNS3)
+interface Ethernet3
+   description MGMT VRF - to MGMT-SW
+   no switchport
+   vrf MGMT
+   ip address 10.0.0.1/24
 
-! NetFlow
-ip flow-export version 9
-ip flow-export destination 10.10.0.10 2055
-ip flow-export source Loopback0
+! sFlow (Arista equivalent of NetFlow)
+sflow sample 1000
+sflow destination 10.10.0.10
+sflow source-interface Loopback0
+sflow run
 
 ! BGP Prefix-lists
 ip prefix-list DC-OUT seq 10 permit 10.0.0.0/24
@@ -420,84 +432,85 @@ ip prefix-list DC-IN seq 70 permit 192.168.101.0/24 le 30
 ip prefix-list DC-IN seq 80 permit 192.168.102.0/24 le 30
 ip prefix-list DC-IN seq 1000 deny 0.0.0.0/0 le 32
 
-! Traffic Engineering
+! Route-maps for Traffic Engineering
 route-map SET-COMMUNITY-PE1 permit 10
- set community 65000:110
+   set community 65000:110
 
 route-map SET-COMMUNITY-PE2 permit 10
- set community 65000:120
+   set community 65000:120
 
 route-map PREFER-PE1 permit 10
- set local-preference 150
+   set local-preference 150
 
 route-map PREFER-PE2 permit 10
- set local-preference 100
+   set local-preference 100
 
-! BFD
-bfd slow-timers 2000
-
+! BGP Configuration
 router bgp 65000
- bgp router-id 1.1.1.1
- bgp log-neighbor-changes
- neighbor 192.168.100.2 remote-as 65001
- neighbor 192.168.100.2 description PE1
- neighbor 192.168.100.2 fall-over bfd
- neighbor 192.168.100.6 remote-as 65001
- neighbor 192.168.100.6 description PE2
- neighbor 192.168.100.6 fall-over bfd
- address-family ipv4
-  network 10.0.0.0 mask 255.255.255.0
-  network 10.10.0.0 mask 255.255.255.0
-  network 10.20.0.0 mask 255.255.255.0
-  redistribute connected
-  neighbor 192.168.100.2 activate
-  neighbor 192.168.100.2 send-community
-  neighbor 192.168.100.2 allowas-in 2
-  neighbor 192.168.100.2 prefix-list DC-IN in
-  neighbor 192.168.100.2 prefix-list DC-OUT out
-  neighbor 192.168.100.2 route-map PREFER-PE1 in
-  neighbor 192.168.100.2 route-map SET-COMMUNITY-PE1 out
-  neighbor 192.168.100.2 maximum-prefix 50 80 warning-only
-  neighbor 192.168.100.6 activate
-  neighbor 192.168.100.6 send-community
-  neighbor 192.168.100.6 allowas-in 2
-  neighbor 192.168.100.6 prefix-list DC-IN in
-  neighbor 192.168.100.6 prefix-list DC-OUT out
-  neighbor 192.168.100.6 route-map PREFER-PE2 in
-  neighbor 192.168.100.6 route-map SET-COMMUNITY-PE2 out
-  neighbor 192.168.100.6 maximum-prefix 50 80 warning-only
- exit-address-family
- address-family ipv4 vrf MGMT
-  redistribute connected
- exit-address-family
+   router-id 1.1.1.1
+   maximum-paths 2
+   
+   neighbor 192.168.100.2 remote-as 65001
+   neighbor 192.168.100.2 description PE1
+   neighbor 192.168.100.2 bfd
+   neighbor 192.168.100.2 allowas-in 2
+   neighbor 192.168.100.2 send-community
+   neighbor 192.168.100.2 prefix-list DC-IN in
+   neighbor 192.168.100.2 prefix-list DC-OUT out
+   neighbor 192.168.100.2 route-map PREFER-PE1 in
+   neighbor 192.168.100.2 route-map SET-COMMUNITY-PE1 out
+   neighbor 192.168.100.2 maximum-routes 50 warning-only
+   
+   neighbor 192.168.100.6 remote-as 65001
+   neighbor 192.168.100.6 description PE2
+   neighbor 192.168.100.6 bfd
+   neighbor 192.168.100.6 allowas-in 2
+   neighbor 192.168.100.6 send-community
+   neighbor 192.168.100.6 prefix-list DC-IN in
+   neighbor 192.168.100.6 prefix-list DC-OUT out
+   neighbor 192.168.100.6 route-map PREFER-PE2 in
+   neighbor 192.168.100.6 route-map SET-COMMUNITY-PE2 out
+   neighbor 192.168.100.6 maximum-routes 50 warning-only
+   
+   network 10.0.0.0/24
+   network 10.10.0.0/24
+   network 10.20.0.0/24
+   redistribute connected
+   
+   ! VRF MGMT
+   vrf MGMT
+      rd 65000:1
+      redistribute connected
 
 ! Static routes
-ip route 2.2.2.0 255.255.255.0 192.168.100.2
-ip route 2.2.2.0 255.255.255.0 192.168.100.6 10
-ip route 10.0.0.0 255.255.255.0 Null0
-ip route 10.20.0.0 255.255.255.0 Null0
-ip route 10.255.0.0 255.255.0.0 192.168.100.2
-ip route 10.255.0.0 255.255.0.0 192.168.100.6 10
-ip route 192.168.101.0 255.255.255.0 192.168.100.2
-ip route 192.168.101.0 255.255.255.0 192.168.100.6 10
-ip route 192.168.102.0 255.255.255.0 192.168.100.2
-ip route 192.168.102.0 255.255.255.0 192.168.100.6 10
+ip route 2.2.2.0/24 192.168.100.2
+ip route 2.2.2.0/24 192.168.100.6 10
+ip route 10.0.0.0/24 Null0
+ip route 10.20.0.0/24 Null0
+ip route 10.255.0.0/16 192.168.100.2
+ip route 10.255.0.0/16 192.168.100.6 10
+ip route 192.168.101.0/24 192.168.100.2
+ip route 192.168.101.0/24 192.168.100.6 10
+ip route 192.168.102.0/24 192.168.100.2
+ip route 192.168.102.0/24 192.168.100.6 10
 
 ! SNMPv3
-snmp-server group LAB3-RO v3 priv read LAB3-VIEW access 99
 snmp-server view LAB3-VIEW iso included
-snmp-server user snmpuser LAB3-RO v3 auth sha Lab3SNMPauth! priv aes 128 Lab3SNMPpriv!
+snmp-server group LAB3-RO v3 priv read LAB3-VIEW
+snmp-server user snmpuser LAB3-RO v3 auth sha Lab3SNMPauth! priv aes Lab3SNMPpriv!
 snmp-server location "Datacenter DC - Grupp2 SN24"
 snmp-server contact "admin@grupp2.lab3.local"
 
-access-list 99 permit 10.0.0.0 0.0.0.255
+! Management ACL
+ip access-list standard MGMT-ACCESS
+   permit 10.0.0.0/24
 
 ! Syslog
-logging source-interface Loopback0
 logging host 10.0.0.10 vrf MGMT
+logging source-interface Loopback0
 
 end
-write memory
+write
 ```
 
 ### 2.3 Verifiera CE-DC
