@@ -6,11 +6,11 @@
 
 # 📋 MAC-adresslista
 
-**Sätt dessa MAC-adresser på ens4 (första nätverkskortet) i GNS3 innan du startar VM:en.**
+**Sätt dessa MAC-adresser på första nätverkskortet i GNS3 innan du startar VM:en.**
 
 | Enhet | MAC-adress | IP (sätts automatiskt) | OS | Roll |
 |-------|------------|------------------------|-----|------|
-| **DATACENTER - SERVICES VRF** |
+| **DATACENTER - SERVICES VRF** |||||
 | haproxy-1 | `0c:10:00:00:00:10` | 10.10.0.10 | Debian 12 | Load Balancer (VRRP Master) |
 | haproxy-2 | `0c:10:00:00:00:11` | 10.10.0.11 | Debian 12 | Load Balancer (VRRP Backup) |
 | web-1 | `0c:10:00:00:00:21` | 10.10.0.21 | Debian 12 | Apache Web Server |
@@ -20,11 +20,12 @@
 | terminal-2 | `0c:10:00:00:00:32` | 10.10.0.32 | **AlmaLinux 9** | XRDP Terminal Server |
 | nfs-server | `0c:10:00:00:00:40` | 10.10.0.40 | Debian 12 | NFS File Server |
 | ssh-bastion | `0c:10:00:00:00:50` | 10.10.0.50 | Debian 12 | SSH Gateway + MFA |
-| **DATACENTER - MGMT VRF** |
+| **DATACENTER - MGMT VRF** |||||
 | puppet-master | `0c:00:00:00:00:10` | 10.0.0.10 | Debian 12 | Puppet Server + Dashboard |
-| **BRANCH A** |
-| thin-client-a | `0c:20:01:00:00:20` | 10.20.1.20 | Debian 12 | Thin Client |
-| **BRANCH B** |
+| **BRANCH A** |||||
+| pxe-server | `0c:20:01:00:00:10` | 10.20.1.10 | Debian 12 | PXE/DHCP/TFTP Server |
+| thin-client-a | `0c:20:01:00:00:20` | 10.20.1.20 | Debian 12 | Thin Client (PXE-installerad) |
+| **BRANCH B** |||||
 | windows-client | `0c:20:02:00:00:10` | 10.20.2.10 | Windows 10 | Thin Client |
 
 ---
@@ -35,27 +36,28 @@ Varje VM har **två nätverkskort**:
 
 | Interface | Koppling | Syfte |
 |-----------|----------|-------|
-| **ens4** | Service-switch (SERVICES-SW, LAN-SW-A, etc.) | Intern trafik |
-| **ens5** | **MGT-switch** | Internet via DHCP |
+| **Första NIC** | Service-switch (SERVICES-SW, LAN-SW-A, etc.) | Intern trafik |
+| **Andra NIC** | **NAT-moln** | Internet via DHCP |
 
-**Viktigt:** ens5 måste vara kopplad till MGT-switch/NAT-moln för att få internet via DHCP. Detta behövs för att kunna köra bootstrap-scriptet.
+> **OBS!** Interface-namn (ens3, ens4, etc.) beror på ordningen du kopplar i GNS3. Kontrollera alltid vilken interface som har rätt MAC-adress med `ip link show`.
 
 ---
 
-## Steg 1: Provider Core
+# Steg 1: Provider Core
 
 Provider core är "internet-leverantören" som kopplar ihop alla sites. Alla PE-routrar kör iBGP sinsemellan.
 
-### 1.1 Skapa routrar och koppla ihop
+## 1.1 Skapa routrar och koppla ihop
 
 **Kopplingar:**
+
 ```
 PE1 Gi0/1 ↔ PE-2 Gi0/1     (10.255.0.0/30)
 PE1 Gi0/2 ↔ PE-A Gi0/1     (10.255.0.4/30)
 PE-2 Gi0/2 ↔ PE-B Gi0/1    (10.255.0.8/30)
 ```
 
-### 1.2 Konfigurera PE1
+## 1.2 Konfigurera PE1
 
 Öppna konsol till PE1 och klistra in:
 
@@ -125,7 +127,7 @@ end
 write memory
 ```
 
-### 1.3 Konfigurera PE-2
+## 1.3 Konfigurera PE-2
 
 ```
 enable
@@ -193,7 +195,7 @@ end
 write memory
 ```
 
-### 1.4 Konfigurera PE-A
+## 1.4 Konfigurera PE-A
 
 ```
 enable
@@ -255,7 +257,7 @@ end
 write memory
 ```
 
-### 1.5 Konfigurera PE-B
+## 1.5 Konfigurera PE-B
 
 ```
 enable
@@ -316,7 +318,7 @@ end
 write memory
 ```
 
-### 1.6 Verifiera Provider Core
+## 1.6 Verifiera Provider Core
 
 Vänta någon minut så OSPF och BGP hinner konvergera, sedan:
 
@@ -329,11 +331,11 @@ Alla iBGP-sessioner ska vara "Established".
 
 ---
 
-## Steg 2: Datacenter
+# Steg 2: Datacenter
 
 CE-DC är hjärtat i nätverket. Den är dual-homed till både PE1 och PE2.
 
-### 2.1 Kopplingar
+## 2.1 Kopplingar
 
 ```
 CE-DC Gi0/0 ↔ SERVICES-SW          (10.10.0.1/24)
@@ -342,15 +344,14 @@ CE-DC Gi0/2 ↔ PE-2 Gi0/0           (192.168.100.4/30)
 CE-DC Gi0/3 ↔ (MGMT - ej använd)   (10.0.0.1/24)
 ```
 
-### 2.2 Konfigurera CE-DC --- DETTA ÄR EN ARISTA NU!
-```
+## 2.2 Konfigurera CE-DC (Arista)
 
+```
 ! INNAN DU KLISTRAR IN:
 ! 1. Logga in: admin (inget lösenord)
 ! 2. Kör: zerotouch cancel
 ! 3. Kör: configure terminal
 ! 4. Klistra in konfigurationen nedan
-
 ```
 
 ```
@@ -513,7 +514,7 @@ end
 write
 ```
 
-### 2.3 Verifiera CE-DC
+## 2.3 Verifiera CE-DC
 
 ```
 show ip bgp summary
@@ -521,49 +522,100 @@ show ip bgp summary
 
 Du ska se två sessioner (PE1 och PE2), båda "Established".
 
-**OBS! Viktigt:** `allowas-in 2` är nödvändigt! Utan detta blockeras routes från branches eftersom de har samma AS-nummer (65000).
+> **OBS!** `allowas-in 2` är nödvändigt! Utan detta blockeras routes från branches eftersom de har samma AS-nummer (65000).
 
+---
 
+# Steg 3: Branch A - CE-A Router
 
+## 3.1 Kopplingar
+
+```
+CE-A Gi0/0 ↔ PE-A Gi0/0      (192.168.101.0/30)
+CE-A Gi0/2 ↔ LAN-SW-A        (10.20.1.1/24)
+```
+
+## 3.2 Konfigurera CE-A
+
+```
+enable
+conf t
+
+hostname CE-A
+
+bfd slow-timers 2000
+
+interface Loopback0
+ ip address 1.1.1.10 255.255.255.255
+
+interface GigabitEthernet0/0
+ description Link to PE-A
+ ip address 192.168.101.1 255.255.255.252
+ bfd interval 300 min_rx 300 multiplier 3
+ no shutdown
+
+interface GigabitEthernet0/2
+ description LAN-SW-A - Branch A LAN
+ ip address 10.20.1.1 255.255.255.0
+ no shutdown
+
+router bgp 65000
+ bgp router-id 1.1.1.10
+ bgp log-neighbor-changes
+ neighbor 192.168.101.2 remote-as 65001
+ neighbor 192.168.101.2 description PE-A
+ neighbor 192.168.101.2 fall-over bfd
+ address-family ipv4
+  network 10.0.1.0 mask 255.255.255.0
+  network 10.20.1.0 mask 255.255.255.0
+  neighbor 192.168.101.2 activate
+  neighbor 192.168.101.2 prefix-list BRANCH-A-OUT out
+  neighbor 192.168.101.2 maximum-prefix 50 80 warning-only
+ exit-address-family
+
+ip prefix-list BRANCH-A-OUT seq 10 permit 10.0.1.0/24
+ip prefix-list BRANCH-A-OUT seq 20 permit 10.20.1.0/24
+ip prefix-list BRANCH-A-OUT seq 1000 deny 0.0.0.0/0 le 32
+
+ip route 10.0.1.0 255.255.255.0 Null0
+
+end
+write memory
+```
+
+---
 
 # Deployment
 
 ## Ordning
 
 ```
-1. Routrar (Cisco)           ← Konfigurera först
+1. Routrar (Cisco/Arista)    ← Konfigurera först
 2. Puppet-Master             ← Måste vara igång innan klienter
-3. Alla andra servrar        ← Automatiskt via bootstrap
+3. Datacenter-servrar        ← Via bootstrap
+4. Branch A: PXE-Server      ← Innan thin-client
+5. Branch A: Thin-Client-A   ← Via PXE boot
 ```
 
 ---
 
-## Del 1: Routrar (Cisco)
-
-
-**Verifiera att BGP är uppe innan du fortsätter:**
-```
-show ip bgp summary
-```
-Alla sessioner ska vara "Established".
-
----
-
-## Del 2: Puppet-Master
+# Del 1: Puppet-Master
 
 **Puppet-Master måste vara igång INNAN du deployar andra servrar!**
 
-### Steg 1: Skapa VM i GNS3
+## Steg 1: Skapa VM i GNS3
 
 | Parameter | Värde |
 |-----------|-------|
-| MAC-adress (ens4) | `0c:00:00:00:00:10` |
+| MAC-adress | `0c:00:00:00:00:10` |
 | OS | Debian 12 |
 | RAM | 4096 MB |
-| ens4 | MGMT-SW |
-| ens5 | MGT (NAT) |
+| NIC 1 | MGMT-SW |
+| NIC 2 | NAT-moln |
 
-### Steg 2: Konfigurera nätverk
+## Steg 2: Konfigurera nätverk
+
+Logga in och kör:
 
 ```bash
 cat > /etc/network/interfaces << 'EOF'
@@ -582,7 +634,7 @@ EOF
 systemctl restart networking
 ```
 
-### Steg 3: Installera Puppet Server
+## Steg 3: Installera Puppet Server
 
 ```bash
 hostnamectl set-hostname puppet-master
@@ -614,7 +666,7 @@ systemctl enable puppetserver
 systemctl start puppetserver
 ```
 
-### Steg 4: Installera Flask Dashboard
+## Steg 4: Installera Flask Dashboard
 
 ```bash
 mkdir -p /opt/lab3-dashboard
@@ -622,8 +674,11 @@ cd /opt/lab3-dashboard
 
 # Kopiera filer från repo
 cp -r /tmp/lab3-multisite-enterprise/automation/dashboard/* .
-cp /tmp/lab3-multisite-enterprise/bootstrap/auto-setup.sh .
-cp /tmp/lab3-multisite-enterprise/bootstrap/auto-setup-alma.sh .
+cp /tmp/lab3-multisite-enterprise/automation/auto-setup.sh .
+cp /tmp/lab3-multisite-enterprise/automation/auto-setup-alma.sh .
+cp /tmp/lab3-multisite-enterprise/automation/auto-setup-pxe.sh .
+
+chmod +x *.sh
 
 # Installera Flask
 python3 -m venv venv
@@ -653,341 +708,324 @@ systemctl enable lab3-dashboard
 systemctl start lab3-dashboard
 ```
 
-### Steg 5: Verifiera
+## Steg 5: Verifiera
 
 ```bash
-# Puppet Server
 systemctl status puppetserver
-
-# Dashboard
 systemctl status lab3-dashboard
 curl http://localhost:5000
 ```
 
-**Dashboard är nu på: http://192.168.122.127:5000**
+**Dashboard finns på:** `http://192.168.122.127:5000`
 
 ---
 
-## Del 3: HAProxy-1
+# Del 2-11: Datacenter-servrar
 
-### Steg 1: Skapa VM i GNS3
+## Snabbguide för alla Datacenter-servrar
 
-| Parameter | Värde |
-|-----------|-------|
-| MAC-adress (ens4) | `0c:10:00:00:00:10` |
-| OS | Debian 12 |
-| ens4 | SERVICES-SW |
-| ens5 | MGT (NAT) |
-
-### Steg 2: Konfigurera internet (ens5)
+**Debian-servrar (HAProxy, Web, NFS, SSH-Bastion):**
 
 ```bash
+# 1. Konfigurera internet
 cat >> /etc/network/interfaces << 'EOF'
 
 auto ens5
 iface ens5 inet dhcp
 EOF
-
 ifup ens5
-```
 
-### Steg 3: Kör bootstrap
-
-```bash
+# 2. Kör bootstrap
 curl -s http://192.168.122.127:5000/auto-setup.sh | bash
 ```
 
-**Klart!** Scriptet sätter hostname, IP, installerar HAProxy + Keepalived, och registrerar med Puppet.
-
----
-
-## Del 4: HAProxy-2
-
-### Steg 1: Skapa VM i GNS3
-
-| Parameter | Värde |
-|-----------|-------|
-| MAC-adress (ens4) | `0c:10:00:00:00:11` |
-| OS | Debian 12 |
-| ens4 | SERVICES-SW |
-| ens5 | MGT (NAT) |
-
-### Steg 2: Konfigurera internet (ens5)
+**AlmaLinux-servrar (Terminal-1, Terminal-2):**
 
 ```bash
-cat >> /etc/network/interfaces << 'EOF'
-
-auto ens5
-iface ens5 inet dhcp
-EOF
-
-ifup ens5
-```
-
-### Steg 3: Kör bootstrap
-
-```bash
-curl -s http://192.168.122.127:5000/auto-setup.sh | bash
-```
-
----
-
-## Del 5: Web-1
-
-### Steg 1: Skapa VM i GNS3
-
-| Parameter | Värde |
-|-----------|-------|
-| MAC-adress (ens4) | `0c:10:00:00:00:21` |
-| OS | Debian 12 |
-| ens4 | SERVICES-SW |
-| ens5 | MGT (NAT) |
-
-### Steg 2: Konfigurera internet (ens5)
-
-```bash
-cat >> /etc/network/interfaces << 'EOF'
-
-auto ens5
-iface ens5 inet dhcp
-EOF
-
-ifup ens5
-```
-
-### Steg 3: Kör bootstrap
-
-```bash
-curl -s http://192.168.122.127:5000/auto-setup.sh | bash
-```
-
----
-
-## Del 6: Web-2
-
-### Steg 1: Skapa VM i GNS3
-
-| Parameter | Värde |
-|-----------|-------|
-| MAC-adress (ens4) | `0c:10:00:00:00:22` |
-| OS | Debian 12 |
-| ens4 | SERVICES-SW |
-| ens5 | MGT (NAT) |
-
-### Steg 2: Konfigurera internet (ens5)
-
-```bash
-cat >> /etc/network/interfaces << 'EOF'
-
-auto ens5
-iface ens5 inet dhcp
-EOF
-
-ifup ens5
-```
-
-### Steg 3: Kör bootstrap
-
-```bash
-curl -s http://192.168.122.127:5000/auto-setup.sh | bash
-```
-
----
-
-## Del 7: Web-3
-
-### Steg 1: Skapa VM i GNS3
-
-| Parameter | Värde |
-|-----------|-------|
-| MAC-adress (ens4) | `0c:10:00:00:00:23` |
-| OS | Debian 12 |
-| ens4 | SERVICES-SW |
-| ens5 | MGT (NAT) |
-
-### Steg 2: Konfigurera internet (ens5)
-
-```bash
-cat >> /etc/network/interfaces << 'EOF'
-
-auto ens5
-iface ens5 inet dhcp
-EOF
-
-ifup ens5
-```
-
-### Steg 3: Kör bootstrap
-
-```bash
-curl -s http://192.168.122.127:5000/auto-setup.sh | bash
-```
-
----
-
-## Del 8: Terminal-1 (AlmaLinux)
-
-**OBS: AlmaLinux använder `dhclient` istället för ifup!**
-
-### Steg 1: Skapa VM i GNS3
-
-| Parameter | Värde |
-|-----------|-------|
-| MAC-adress (ens4) | `0c:10:00:00:00:31` |
-| OS | **AlmaLinux 9** |
-| ens4 | SERVICES-SW |
-| ens5 | MGT (NAT) |
-
-### Steg 2: Konfigurera internet (ens5)
-
-```bash
+# 1. Konfigurera internet
 dhclient ens5
-```
 
-### Steg 3: Kör bootstrap
-
-```bash
+# 2. Kör bootstrap
 curl -s http://192.168.122.127:5000/auto-setup-alma.sh | bash
 ```
 
----
+| Enhet | MAC | Script |
+|-------|-----|--------|
+| haproxy-1 | `0c:10:00:00:00:10` | auto-setup.sh |
+| haproxy-2 | `0c:10:00:00:00:11` | auto-setup.sh |
+| web-1 | `0c:10:00:00:00:21` | auto-setup.sh |
+| web-2 | `0c:10:00:00:00:22` | auto-setup.sh |
+| web-3 | `0c:10:00:00:00:23` | auto-setup.sh |
+| terminal-1 | `0c:10:00:00:00:31` | auto-setup-alma.sh |
+| terminal-2 | `0c:10:00:00:00:32` | auto-setup-alma.sh |
+| nfs-server | `0c:10:00:00:00:40` | auto-setup.sh |
+| ssh-bastion | `0c:10:00:00:00:50` | auto-setup.sh |
 
-## Del 9: Terminal-2 (AlmaLinux)
-
-**OBS: AlmaLinux använder `dhclient` istället för ifup!**
-
-### Steg 1: Skapa VM i GNS3
-
-| Parameter | Värde |
-|-----------|-------|
-| MAC-adress (ens4) | `0c:10:00:00:00:32` |
-| OS | **AlmaLinux 9** |
-| ens4 | SERVICES-SW |
-| ens5 | MGT (NAT) |
-
-### Steg 2: Konfigurera internet (ens5)
+**Efter varje server, signera Puppet-certifikat på puppet-master:**
 
 ```bash
-dhclient ens5
-```
-
-### Steg 3: Kör bootstrap
-
-```bash
-curl -s http://192.168.122.127:5000/auto-setup-alma.sh | bash
-```
-
----
-
-## Del 10: NFS-Server
-
-### Steg 1: Skapa VM i GNS3
-
-| Parameter | Värde |
-|-----------|-------|
-| MAC-adress (ens4) | `0c:10:00:00:00:40` |
-| OS | Debian 12 |
-| ens4 | SERVICES-SW |
-| ens5 | MGT (NAT) |
-
-### Steg 2: Konfigurera internet (ens5)
-
-```bash
-cat >> /etc/network/interfaces << 'EOF'
-
-auto ens5
-iface ens5 inet dhcp
-EOF
-
-ifup ens5
-```
-
-### Steg 3: Kör bootstrap
-
-```bash
-curl -s http://192.168.122.127:5000/auto-setup.sh | bash
-```
-
----
-
-## Del 11: SSH-Bastion
-
-### Steg 1: Skapa VM i GNS3
-
-| Parameter | Värde |
-|-----------|-------|
-| MAC-adress (ens4) | `0c:10:00:00:00:50` |
-| OS | Debian 12 |
-| ens4 | SERVICES-SW |
-| ens5 | MGT (NAT) |
-
-### Steg 2: Konfigurera internet (ens5)
-
-```bash
-cat >> /etc/network/interfaces << 'EOF'
-
-auto ens5
-iface ens5 inet dhcp
-EOF
-
-ifup ens5
-```
-
-### Steg 3: Kör bootstrap
-
-```bash
-curl -s http://192.168.122.127:5000/auto-setup.sh | bash
-```
-
----
-
-## Del 12: Thin-Client-A (Branch A)
-
-### Steg 1: Skapa VM i GNS3
-
-| Parameter | Värde |
-|-----------|-------|
-| MAC-adress (ens4) | `0c:20:01:00:00:20` |
-| OS | Debian 12 |
-| ens4 | LAN-SW-A |
-| ens5 | MGT (NAT) |
-
-### Steg 2: Konfigurera internet (ens5)
-
-```bash
-cat >> /etc/network/interfaces << 'EOF'
-
-auto ens5
-iface ens5 inet dhcp
-EOF
-
-ifup ens5
-```
-
-### Steg 3: Kör bootstrap
-
-```bash
-curl -s http://192.168.122.127:5000/auto-setup.sh | bash
-```
-
----
-
-## Del 13: Signera Puppet-certifikat
-
-När alla servrar har kört bootstrap, signera certifikaten på Puppet-Master:
-
-```bash
-# På Puppet-Master
 sudo /opt/puppetlabs/bin/puppetserver ca sign --all
 ```
 
-Eller klicka **"Sign All Puppet Certs"** i Dashboard.
+---
+
+# Del 12: Branch A - PXE-Server
+
+PXE-servern tillhandahåller automatisk nätverksinstallation för thin-clients i Branch A.
+
+## Steg 1: Skapa VM i GNS3
+
+| Parameter | Värde |
+|-----------|-------|
+| Template | Debian 12 |
+| RAM | 2048 MB |
+| Disk | 20 GB |
+
+## Steg 2: Konfigurera nätverkskort i GNS3
+
+Högerklicka på VM → Configure → Network
+
+| Adapter | MAC-adress | Koppling |
+|---------|------------|----------|
+| **Adapter 0** | `0c:20:01:00:00:10` | **LAN-SW-A** |
+| **Adapter 1** | (auto) | **NAT-moln** |
+
+> ⚠️ **VIKTIGT:** Adapter 0 MÅSTE vara kopplad till LAN-SW-A, Adapter 1 till NAT!
+
+## Steg 3: Starta och identifiera interfaces
+
+Starta VM:en, logga in som root och kör:
+
+```bash
+ip link show
+```
+
+Identifiera vilken interface som har MAC `0c:20:01:00:00:10`:
+
+```bash
+ip link show | grep -A1 "0c:20:01:00:00:10"
+```
+
+**Notera interface-namnet** (t.ex. `ens3` eller `ens4`) - detta är din LAN-interface.
+
+## Steg 4: Konfigurera internet
+
+Identifiera din NAT-interface (den ANDRA interfacen) och aktivera DHCP:
+
+```bash
+# Om ens3 är LAN, då är ens4 NAT:
+dhclient ens4
+
+# ELLER om ens4 är LAN, då är ens5 NAT:
+dhclient ens5
+```
+
+Verifiera internet:
+
+```bash
+ping -c 2 8.8.8.8
+```
+
+## Steg 5: Kör bootstrap-scriptet
+
+```bash
+curl -s http://192.168.122.127:5000/auto-setup-pxe.sh | bash
+```
+
+Scriptet gör automatiskt:
+- Sätter hostname till `pxe-server`
+- Konfigurerar IP `10.20.1.10` på LAN-interface
+- Installerar DHCP, TFTP, Apache
+- Konfigurerar NAT gateway för thin-clients
+- Laddar ner Debian netboot-filer
+- Skapar preseed för automatisk installation
+- Installerar Puppet agent
+
+## Steg 6: Signera Puppet-certifikat
+
+**På puppet-master:**
+
+```bash
+sudo /opt/puppetlabs/bin/puppetserver ca sign --certname pxe-server
+```
+
+## Steg 7: Verifiera
+
+**På pxe-server:**
+
+```bash
+systemctl status isc-dhcp-server
+systemctl status tftpd-hpa
+systemctl status apache2
+```
+
+Alla tre ska visa "active (running)".
+
+---
+
+# Del 13: Branch A - Thin-Client-A (PXE-installation)
+
+Thin-client-a installeras automatiskt via PXE från pxe-server.
+
+## Steg 1: Skapa VM i GNS3
+
+| Parameter | Värde |
+|-----------|-------|
+| Template | Debian 12 (eller tom QEMU VM) |
+| RAM | 2048 MB |
+| Disk | 20 GB |
+| **Boot order** | **Network FÖRST** |
+
+## Steg 2: Konfigurera nätverkskort i GNS3
+
+Högerklicka på VM → Configure → Network
+
+| Adapter | MAC-adress | Koppling |
+|---------|------------|----------|
+| **Adapter 0** | `0c:20:01:00:00:20` | **LAN-SW-A** |
+| **Adapter 1** | (auto) | **NAT-moln** |
+
+> ⚠️ **VIKTIGT:** Samma ordning som PXE-server - Adapter 0 till LAN-SW-A!
+
+## Steg 3: Konfigurera boot-ordning
+
+Högerklicka på VM → Configure → Advanced/Boot:
+- Sätt **Network boot** som första alternativ
+- Eller ställ in BIOS boot order via konsolen
+
+## Steg 4: Starta och PXE-boota
+
+1. Starta VM:en
+2. Den ska automatiskt få IP via DHCP från pxe-server
+3. PXE-menyn visas: **"Install Debian Thin Client (Automated)"**
+4. Vänta 10 sekunder eller tryck Enter
+
+## Steg 5: Manuellt val av nätverksinterface
+
+> ⚠️ **VIKTIGT - MANUELLT STEG!**
+
+När installern frågar **"Configure the network"** och visar flera interfaces:
+
+```
+Primary network interface:
+  ens3: Intel Corporation 82540EM Gigabit Ethernet Controller
+  ens4: Intel Corporation 82540EM Gigabit Ethernet Controller
+```
+
+**Välj den interface som är kopplad till LAN-SW-A** (samma interface som fick DHCP-adress från PXE-servern).
+
+Tips: Det är oftast den FÖRSTA interfacen (ens3) om du följde kopplings-ordningen ovan.
+
+## Steg 6: Vänta på installation
+
+Installationen tar ca 5-10 minuter:
+1. Hämtar paket från internet (via PXE-serverns NAT)
+2. Installerar Debian base system
+3. Kör late_command (installerar Puppet agent)
+4. Startar om automatiskt
+
+## Steg 7: Logga in och verifiera
+
+Efter reboot, logga in:
+- **Användare:** `debian`
+- **Lösenord:** `debian`
+
+Verifiera nätverket:
+
+```bash
+ip addr show
+ping 10.20.1.10      # PXE-server
+ping 10.10.0.1       # CE-DC (datacenter)
+```
+
+## Steg 8: Signera Puppet-certifikat
+
+**På puppet-master:**
+
+```bash
+sudo /opt/puppetlabs/bin/puppetserver ca sign --certname thin-client-a.branch-a.lab3.local
+```
+
+**På thin-client-a:**
+
+```bash
+sudo /opt/puppetlabs/bin/puppet agent --test
+```
+
+---
+
+# 🔧 Felsökning Branch A
+
+## Problem: PXE-boot hittar ingen server
+
+**Symptom:** "No DHCP offers received" eller timeout
+
+**Lösning:**
+1. Verifiera att pxe-server körs: `systemctl status isc-dhcp-server`
+2. Kontrollera att thin-client är kopplad till LAN-SW-A
+3. Kontrollera MAC-adressen: `0c:20:01:00:00:20`
+
+## Problem: TFTP-fel "File not found"
+
+**Symptom:** PXE laddar men hittar inte boot-filer
+
+**Lösning på pxe-server:**
+
+```bash
+# Kontrollera TFTP-katalog
+cat /etc/default/tftpd-hpa
+# Ska visa: TFTP_DIRECTORY="/var/lib/tftpboot"
+
+# Kontrollera att filer finns
+ls -la /var/lib/tftpboot/
+ls -la /var/lib/tftpboot/debian/
+```
+
+## Problem: Installation fastnar vid "mirror"
+
+**Symptom:** Kan inte nå deb.debian.org
+
+**Orsak:** NAT-gateway på pxe-server fungerar inte
+
+**Lösning på pxe-server:**
+
+```bash
+# Aktivera IP forwarding
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+# Konfigurera NAT
+iptables -t nat -A POSTROUTING -o ens5 -j MASQUERADE
+
+# Starta om DHCP
+systemctl restart isc-dhcp-server
+```
+
+## Problem: Puppet certificate mismatch
+
+**Symptom:** "Certificate does not match private key"
+
+**Orsak:** Gamla certifikat finns kvar från tidigare försök
+
+**Lösning:**
+
+På puppet-master:
+```bash
+sudo /opt/puppetlabs/bin/puppetserver ca clean --certname thin-client-a.branch-a.lab3.local
+```
+
+På thin-client-a:
+```bash
+rm -rf /etc/puppetlabs/puppet/ssl
+/opt/puppetlabs/bin/puppet agent --test
+```
+
+Sedan signera igen på puppet-master.
 
 ---
 
 # ✅ Verifiering
 
-### Testa Load Balancing
+## Testa Load Balancing
 
 ```bash
 for i in {1..6}; do curl -s http://10.10.0.9 | grep Server; done
@@ -995,13 +1033,13 @@ for i in {1..6}; do curl -s http://10.10.0.9 | grep Server; done
 
 Ska rotera mellan web-1, web-2, web-3.
 
-### Testa RDP till Terminal Server
+## Testa RDP till Terminal Server
 
 ```bash
 xfreerdp /v:10.10.0.31 /u:user01 /p:password123 /cert:ignore
 ```
 
-### Testa VRRP Failover
+## Testa VRRP Failover
 
 ```bash
 # På HAProxy-1
@@ -1014,40 +1052,36 @@ sudo systemctl stop keepalived
 ip addr show ens4 | grep 10.10.0.9
 ```
 
+## Testa Branch A → Datacenter
+
+**Från thin-client-a:**
+
+```bash
+ping 10.10.0.21        # Web-server
+curl http://10.10.0.9  # HAProxy VIP
+```
+
 ---
 
-# 📝 Sammanfattning per enhet
+# 📝 Komplett checklista
 
-| Enhet | MAC | Steg 1 | Steg 2 | Steg 3 |
-|-------|-----|--------|--------|--------|
-| puppet-master | `0c:00:00:00:00:10` | Manuell setup | - | - |
-| haproxy-1 | `0c:10:00:00:00:10` | Sätt MAC | `ifup ens5` | `curl ... \| bash` |
-| haproxy-2 | `0c:10:00:00:00:11` | Sätt MAC | `ifup ens5` | `curl ... \| bash` |
-| web-1 | `0c:10:00:00:00:21` | Sätt MAC | `ifup ens5` | `curl ... \| bash` |
-| web-2 | `0c:10:00:00:00:22` | Sätt MAC | `ifup ens5` | `curl ... \| bash` |
-| web-3 | `0c:10:00:00:00:23` | Sätt MAC | `ifup ens5` | `curl ... \| bash` |
-| terminal-1 | `0c:10:00:00:00:31` | Sätt MAC | `dhclient ens5` | `curl .../auto-setup-alma.sh \| bash` |
-| terminal-2 | `0c:10:00:00:00:32` | Sätt MAC | `dhclient ens5` | `curl .../auto-setup-alma.sh \| bash` |
-| nfs-server | `0c:10:00:00:00:40` | Sätt MAC | `ifup ens5` | `curl ... \| bash` |
-| ssh-bastion | `0c:10:00:00:00:50` | Sätt MAC | `ifup ens5` | `curl ... \| bash` |
-| thin-client-a | `0c:20:01:00:00:20` | Sätt MAC | `ifup ens5` | `curl ... \| bash` |
-
-**Debian:** 
-```bash
-cat >> /etc/network/interfaces << 'EOF'
-
-auto ens5
-iface ens5 inet dhcp
-EOF
-ifup ens5
-curl -s http://192.168.122.127:5000/auto-setup.sh | bash
-```
-
-**AlmaLinux:**
-```bash
-dhclient ens5
-curl -s http://192.168.122.127:5000/auto-setup-alma.sh | bash
-```
+| # | Komponent | MAC | Status |
+|---|-----------|-----|--------|
+| 1 | PE1, PE-2, PE-A, PE-B | - | ☐ Konfigurerad |
+| 2 | CE-DC (Arista) | - | ☐ Konfigurerad |
+| 3 | CE-A | - | ☐ Konfigurerad |
+| 4 | puppet-master | `0c:00:00:00:00:10` | ☐ Konfigurerad |
+| 5 | haproxy-1 | `0c:10:00:00:00:10` | ☐ Bootstrap + Cert |
+| 6 | haproxy-2 | `0c:10:00:00:00:11` | ☐ Bootstrap + Cert |
+| 7 | web-1 | `0c:10:00:00:00:21` | ☐ Bootstrap + Cert |
+| 8 | web-2 | `0c:10:00:00:00:22` | ☐ Bootstrap + Cert |
+| 9 | web-3 | `0c:10:00:00:00:23` | ☐ Bootstrap + Cert |
+| 10 | terminal-1 | `0c:10:00:00:00:31` | ☐ Bootstrap + Cert |
+| 11 | terminal-2 | `0c:10:00:00:00:32` | ☐ Bootstrap + Cert |
+| 12 | nfs-server | `0c:10:00:00:00:40` | ☐ Bootstrap + Cert |
+| 13 | ssh-bastion | `0c:10:00:00:00:50` | ☐ Bootstrap + Cert |
+| 14 | pxe-server | `0c:20:01:00:00:10` | ☐ Bootstrap + Cert |
+| 15 | thin-client-a | `0c:20:01:00:00:20` | ☐ PXE-install + Cert |
 
 ---
 
