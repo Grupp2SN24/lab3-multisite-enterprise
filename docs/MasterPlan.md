@@ -1845,3 +1845,245 @@ ping 10.10.0.1 source 10.20.2.1
 1. **Arista EOS syntax:** Prefix-lists och route-maps måste vara i `address-family ipv4` blocket
 2. **VRF routing:** Måste aktiveras explicit med `ip routing vrf <name>` på Arista
 3. **allowas-in:** Krävs när flera sites har samma AS-nummer och kommunicerar via provider (förhindrar false loop detection)
+
+
+## 18. Fas 3: Puppet Infrastructure (Korrigerad version)
+
+### 18.1 Översikt
+
+Denna fas installerar Puppet-infrastrukturen i MGMT VRF:
+
+| Server | IP | RAM | Roll |
+|--------|-----|-----|------|
+| puppet-master-1 | 10.0.0.10 | 2048 MB | Puppet Server + Foreman |
+| puppet-master-2 | 10.0.0.11 | 2048 MB | Puppet Server (sekundär) |
+| puppetdb | 10.0.0.12 | 1024 MB | PuppetDB + PostgreSQL |
+
+### 18.2 GNS3 Kopplingar
+
+Alla tre servrar kopplas till MGMT-SW:
+
+| Server | NIC 1 (ens4) | NIC 2 (ens5) |
+|--------|--------------|--------------|
+| puppet-master-1 | MGMT-SW Gi0/1 | NAT Cloud |
+| puppet-master-2 | MGMT-SW Gi0/2 | NAT Cloud |
+| puppetdb | MGMT-SW Gi0/3 | NAT Cloud |
+
+**Viktigt:** Alla Debian 12-servrar använder `ens4` och `ens5` som interface-namn.
+
+---
+
+## 19. Del 1: puppet-master-1 (Puppet Server + Foreman)
+
+### 19.1 Steg 1: Skapa VM i GNS3
+
+- Template: Debian 12.6
+- RAM: 2048 MB
+- Disk: 20 GB
+- NICs: 2 st (ens4 → MGMT-SW, ens5 → NAT)
+
+### 19.2 Steg 2: Grundkonfiguration
+```bash
+# Logga in som root
+
+# 1. Sätt hostname
+hostnamectl set-hostname puppet-master-1
+
+# 2. Sätt timezone
+timedatectl set-timezone Europe/Stockholm
+
+# 3. Konfigurera /etc/hosts (VIKTIGT: FQDN först, INGEN 127.0.1.1-rad!)
+cat > /etc/hosts << 'EOF'
+127.0.0.1 localhost
+
+# Puppet Infrastructure
+10.0.0.10 puppet-master-1.lab3.local puppet-master-1 puppet
+10.0.0.11 puppet-master-2.lab3.local puppet-master-2
+10.0.0.12 puppetdb.lab3.local puppetdb
+
+# CE-DC Gateway
+10.0.0.1 ce-dc-mgmt
+EOF
+
+# 4. Verifiera hostname
+hostname -f
+# Måste visa: puppet-master-1.lab3.local
+```
+
+### 19.3 Steg 3: Konfigurera nätverk
+```bash
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+# MGMT Network (ingen gateway - intern trafik)
+auto ens4
+iface ens4 inet static
+    address 10.0.0.10
+    netmask 255.255.255.0
+
+# NAT Network (DHCP ger default gateway för internet)
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+# Starta om nätverk
+systemctl restart networking
+
+# Verifiera
+ip addr show ens4
+ip addr show ens5
+ping -c 2 8.8.8.8
+```
+
+**Om du gjorde större disk på Debian (valfritt):**
+```bash
+apt install -y cloud-guest-utils
+growpart /dev/sda 1
+resize2fs /dev/sda1
+```
+
+### 19.4 Steg 4: Installera beroenden
+```bash
+# Uppdatera system
+apt update && apt upgrade -y
+
+# Installera nödvändiga paket (inkl. cron!)
+apt install -y wget curl gnupg2 apt-transport-https ca-certificates \
+    lsb-release cron postgresql postgresql-contrib
+
+# Starta och aktivera tjänster
+systemctl enable --now cron
+systemctl enable --now postgresql
+```
+
+### 19.5 Steg 5: Installera Puppet Server
+```bash
+# Lägg till Puppet 8 repository
+wget https://apt.puppet.com/puppet8-release-bookworm.deb
+dpkg -i puppet8-release-bookworm.deb
+apt update
+
+# Installera Puppet Server
+apt install -y puppetserver puppet-agent
+
+# Konfigurera Puppet Server
+cat > /etc/puppetlabs/puppet/puppet.conf << 'EOF'
+[main]
+server = puppet-master-1.lab3.local
+certname = puppet-master-1.lab3.local
+dns_alt_names = puppet,puppet-master-1,puppet-master-1.lab3.local,puppet-master-2,puppet-master-2.lab3.local
+
+[server]
+vardir = /opt/puppetlabs/server/data/puppetserver
+logdir = /var/log/puppetlabs/puppetserver
+rundir = /var/run/puppetlabs/puppetserver
+pidfile = /var/run/puppetlabs/puppetserver/puppetserver.pid
+codedir = /etc/puppetlabs/code
+ca = true
+ca_server = puppet-master-1.lab3.local
+EOF
+
+# Autosign för lab-miljö
+echo '*.lab3.local' > /etc/puppetlabs/puppet/autosign.conf
+chmod 644 /etc/puppetlabs/puppet/autosign.conf
+
+# Justera minne (2GB RAM server)
+sed -i 's/Xms2g/Xms1g/g' /etc/default/puppetserver
+sed -i 's/Xmx2g/Xmx1g/g' /etc/default/puppetserver
+
+# Starta Puppet Server och generera CA
+systemctl enable puppetserver
+systemctl start puppetserver
+
+# Vänta tills CA är redo (kan ta 1-2 min)
+sleep 60
+
+# Verifiera att certifikat skapades
+ls -la /etc/puppetlabs/puppet/ssl/certs/
+```
+
+### 19.6 Steg 6: Skapa PostgreSQL-databas för Foreman
+```bash
+sudo -u postgres psql << 'EOF'
+CREATE USER foreman WITH PASSWORD 'foreman';
+CREATE DATABASE foreman OWNER foreman;
+GRANT ALL PRIVILEGES ON DATABASE foreman TO foreman;
+\q
+EOF
+```
+
+### 19.7 Steg 7: Installera Foreman
+```bash
+# Lägg till Foreman repository (version 3.17)
+wget -q https://deb.theforeman.org/foreman.asc -O /etc/apt/trusted.gpg.d/foreman.asc
+
+cat > /etc/apt/sources.list.d/foreman.list << 'EOF'
+deb http://deb.theforeman.org/ bookworm 3.17
+deb http://deb.theforeman.org/ plugins 3.17
+EOF
+
+apt update
+
+# Installera Foreman och plugins
+apt install -y foreman-installer foreman-postgresql
+```
+
+### 19.8 Steg 8: Kör Foreman Installer
+```bash
+foreman-installer \
+    --foreman-initial-admin-username admin \
+    --foreman-initial-admin-password 'Labpass123!' \
+    --puppet-server-foreman-ssl-ca /etc/puppetlabs/puppet/ssl/certs/ca.pem \
+    --puppet-server-foreman-ssl-cert /etc/puppetlabs/puppet/ssl/certs/puppet-master-1.lab3.local.pem \
+    --puppet-server-foreman-ssl-key /etc/puppetlabs/puppet/ssl/private_keys/puppet-master-1.lab3.local.pem \
+    --enable-foreman-plugin-puppetdb \
+    --enable-puppet
+```
+
+### 19.9 Steg 9: Verifiera installation
+```bash
+# Kolla tjänster
+systemctl status puppetserver
+systemctl status apache2
+systemctl status postgresql
+
+# Kolla att portar lyssnar
+ss -tlnp | grep -E '443|8140|8443'
+
+# Testa Puppet lokalt
+/opt/puppetlabs/bin/puppet agent --test
+
+# Foreman ska vara tillgänglig på:
+# https://puppet-master-1.lab3.local
+# Credentials: admin / Labpass123!
+```
+
+##På MGMT-SW,
+```bash
+enable
+conf t
+hostname MGMT-SW
+
+! Sätt alla interface i samma VLAN och aktivera dem
+interface range GigabitEthernet0/0 - 3
+ switchport mode access
+ switchport access vlan 1
+ no shutdown
+ spanning-tree portfast
+ exit
+
+! Kontrollera att VLAN 1 är aktivt
+interface Vlan1
+ no shutdown
+ exit
+
+end
+write memory
+
+###Verifiera:
+show interfaces status
+show vlan brief
+```
+
+
