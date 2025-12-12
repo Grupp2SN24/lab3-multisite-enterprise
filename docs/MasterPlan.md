@@ -2086,4 +2086,157 @@ show interfaces status
 show vlan brief
 ```
 
+## 20. Del 2: puppetdb (Separat server)
+
+### 20.1 Steg 1: Skapa VM i GNS3
+
+- Template: Debian 12.6
+- RAM: 1024 MB
+- Disk: 20 GB
+- NICs: 2 st (ens4 → MGMT-SW Gi0/3, ens5 → NAT)
+
+### 20.2 Steg 2: Grundkonfiguration
+```bash
+# Logga in som root
+
+# 1. Sätt hostname
+hostnamectl set-hostname puppetdb
+
+# 2. Sätt timezone
+timedatectl set-timezone Europe/Stockholm
+
+# 3. Konfigurera /etc/hosts
+cat > /etc/hosts << 'EOF'
+127.0.0.1       localhost
+
+# Puppet Infrastructure
+10.0.0.10       puppet-master-1.lab3.local puppet-master-1 puppet
+10.0.0.11       puppet-master-2.lab3.local puppet-master-2
+10.0.0.12       puppetdb.lab3.local puppetdb
+
+# CE-DC Gateway
+10.0.0.1        ce-dc-mgmt
+EOF
+
+# 4. Verifiera
+hostname -f
+# Måste visa: puppetdb.lab3.local
+```
+
+### 20.3 Steg 3: Konfigurera nätverk
+```bash
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+# MGMT Network
+auto ens4
+iface ens4 inet static
+    address 10.0.0.12
+    netmask 255.255.255.0
+
+# NAT Network
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+systemctl restart networking
+
+# Verifiera
+ping -c 2 10.0.0.10
+ping -c 2 8.8.8.8
+```
+
+### 20.4 Steg 4: Installera PostgreSQL
+```bash
+apt update && apt upgrade -y
+apt install -y postgresql postgresql-contrib wget curl gnupg2
+
+systemctl enable --now postgresql
+
+# Skapa PuppetDB-databas
+sudo -u postgres psql << 'EOF'
+CREATE USER puppetdb WITH PASSWORD 'puppetdb';
+CREATE DATABASE puppetdb OWNER puppetdb;
+\c puppetdb
+CREATE EXTENSION pg_trgm;
+GRANT ALL PRIVILEGES ON DATABASE puppetdb TO puppetdb;
+\q
+EOF
+
+# Tillåt anslutningar från puppet-masters
+cat >> /etc/postgresql/15/main/pg_hba.conf << 'EOF'
+
+# PuppetDB connections from Puppet masters
+host    puppetdb    puppetdb    10.0.0.10/32    scram-sha-256
+host    puppetdb    puppetdb    10.0.0.11/32    scram-sha-256
+host    puppetdb    puppetdb    10.0.0.12/32    scram-sha-256
+EOF
+
+# Lyssna på alla interfaces
+sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" /etc/postgresql/15/main/postgresql.conf
+
+systemctl restart postgresql
+```
+
+### 20.5 Steg 5: Installera PuppetDB
+```bash
+# Lägg till Puppet repository
+wget https://apt.puppet.com/puppet8-release-bookworm.deb
+dpkg -i puppet8-release-bookworm.deb
+apt update
+
+# Installera PuppetDB och agent
+apt install -y puppetdb puppet-agent
+
+# Konfigurera databasanslutning
+cat > /etc/puppetlabs/puppetdb/conf.d/database.ini << 'EOF'
+[database]
+subname = //localhost:5432/puppetdb
+username = puppetdb
+password = puppetdb
+EOF
+
+# Konfigurera PuppetDB
+cat > /etc/puppetlabs/puppetdb/conf.d/jetty.ini << 'EOF'
+[jetty]
+host = 0.0.0.0
+port = 8080
+ssl-host = 0.0.0.0
+ssl-port = 8081
+ssl-key = /etc/puppetlabs/puppetdb/ssl/private.pem
+ssl-cert = /etc/puppetlabs/puppetdb/ssl/public.pem
+ssl-ca-cert = /etc/puppetlabs/puppetdb/ssl/ca.pem
+EOF
+```
+
+### 20.6 Steg 6: Registrera med Puppet och hämta certifikat
+```bash
+# Konfigurera Puppet agent
+cat > /etc/puppetlabs/puppet/puppet.conf << 'EOF'
+[main]
+server = puppet-master-1.lab3.local
+certname = puppetdb.lab3.local
+EOF
+
+# Kör agent för att få certifikat (autosign)
+/opt/puppetlabs/bin/puppet agent --test --waitforcert 60
+
+# Kopiera certifikat till PuppetDB
+mkdir -p /etc/puppetlabs/puppetdb/ssl
+cp /etc/puppetlabs/puppet/ssl/certs/puppetdb.lab3.local.pem /etc/puppetlabs/puppetdb/ssl/public.pem
+cp /etc/puppetlabs/puppet/ssl/private_keys/puppetdb.lab3.local.pem /etc/puppetlabs/puppetdb/ssl/private.pem
+cp /etc/puppetlabs/puppet/ssl/certs/ca.pem /etc/puppetlabs/puppetdb/ssl/ca.pem
+
+chown -R puppetdb:puppetdb /etc/puppetlabs/puppetdb/ssl
+chmod 400 /etc/puppetlabs/puppetdb/ssl/private.pem
+
+# Starta PuppetDB
+systemctl enable puppetdb
+systemctl start puppetdb
+
+# Verifiera
+systemctl status puppetdb
+ss -tlnp | grep -E '8080|8081'
+```
 
