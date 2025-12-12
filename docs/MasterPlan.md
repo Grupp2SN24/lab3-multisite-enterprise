@@ -1,0 +1,1260 @@
+# Lab 3: Multi-Site Enterprise Network - Komplett Topologi och Byggplan
+
+---
+
+## Innehållsförteckning
+
+1. [Projektöversikt](#1-projektöversikt)
+2. [Komplett Nätverkstopologi](#2-komplett-nätverkstopologi)
+3. [Komponentlista](#3-komponentlista)
+4. [IP-adressplan](#4-ip-adressplan)
+5. [Detaljerat Kopplingsschema](#5-detaljerat-kopplingsschema)
+6. [VRF-design](#6-vrf-design)
+7. [BGP-design och Säkerhet](#7-bgp-design-och-säkerhet)
+8. [Observability](#8-observability)
+9. [Byggordning (Faser)](#9-byggordning-faser)
+10. [Fas 1: Provider Core - Konfigurationsguide](#10-fas-1-provider-core---konfigurationsguide)
+
+---
+
+## 1. Projektöversikt
+
+### 1.1 Syfte
+Bygga ett multi-site enterprise-nätverk med:
+- Ett datacenter (DC) med dual-homed anslutning
+- Två branch-kontor (A och B)
+- eBGP-routing mot en simulerad service provider
+- Centraliserad konfigurationshantering med Puppet
+- Lastbalanserade webbtjänster, terminalservrar och säker SSH-åtkomst
+
+### 1.2 Huvudkrav
+| Område | Krav |
+|--------|------|
+| Routing | eBGP mellan CE och PE, AS65000 (kund), AS65001 (provider) |
+| Redundans | DC dual-homed till PE1+PE2, VRRP för load balancers |
+| Segmentering | VRF: MGMT, SERVICES, USER |
+| Automation | Puppet för all provisioning |
+| Säkerhet | Prefix-filter, max-prefix, BFD, SNMPv3 |
+| Tjänster | HAProxy, Apache×3, Terminal×2, NFS, SSH-bastion |
+
+### 1.3 Resursbegränsning
+- **Tillgängligt RAM:** 16 GB
+- **Strategi:** Bygga i faser, pausa enheter mellan faser
+
+---
+
+## 2. Komplett Nätverkstopologi
+
+```
+╔══════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+║                                        PROVIDER CORE (AS 65001)                                          ║
+╠══════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                                          ║
+║                                    ┌─────────────────────────────────┐                                   ║
+║                                    │      iBGP FULL MESH + OSPF      │                                   ║
+║                                    │                                 │                                   ║
+║                              PE1 (IOSv)════════════════PE2 (IOSv)    │                                   ║
+║                              Lo: 2.2.2.1              Lo: 2.2.2.2    │                                   ║
+║                              Gi0/1 ←──10.255.0.0/30──→ Gi0/1         │                                   ║
+║                                │                           │         │                                   ║
+║                           Gi0/2│                           │Gi0/2    │                                   ║
+║                      10.255.0.4/30                    10.255.0.8/30  │                                   ║
+║                                │                           │         │                                   ║
+║                           Gi0/1│                           │Gi0/1    │                                   ║
+║                          PE-A (IOSv)                  PE-B (IOSv)    │                                   ║
+║                          Lo: 2.2.2.10                Lo: 2.2.2.11    │                                   ║
+║                                │                           │         │                                   ║
+║                                └───────────────────────────┘         │                                   ║
+║                                                                                                          ║
+╠══════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+║                                        eBGP PEERING (CE ↔ PE)                                            ║
+╠══════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                                          ║
+║         ┌────────────────────────────────────────────────────────────────────────────────────────┐       ║
+║         │                                                                                        │       ║
+║    Gi0/0│192.168.101.0/30                   192.168.100.0/30   192.168.100.4/30    192.168.102.0/30│Gi0/0 ║
+║         │                                          │                 │                           │       ║
+║         │                                     Gi0/0│            Gi0/0│                           │       ║
+║         │                                          │                 │                           │       ║
+║      PE-A                                        PE1               PE2                        PE-B       ║
+║         │                                          │                 │                           │       ║
+║         │eBGP                                      │eBGP        eBGP│                       eBGP│       ║
+║         │                                          │                 │                           │       ║
+║      CE-A                                          └────CE-DC────────┘                        CE-B       ║
+║    (IOSv)                                           (Arista vEOS)                            (IOSv)      ║
+║  Lo:1.1.1.10                                         Lo:1.1.1.1                            Lo:1.1.1.11   ║
+║                                                                                                          ║
+╠══════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+║                                        CUSTOMER EDGE (AS 65000)                                          ║
+╠══════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                                          ║
+║    ┌──────────────┐                    ┌────────────────────────────────────┐              ┌──────────────┐
+║    │   BRANCH A   │                    │           DATACENTER (DC)          │              │   BRANCH B   │
+║    │              │                    │                                    │              │              │
+║    │    CE-A      │                    │              CE-DC                 │              │     CE-B     │
+║    │   (IOSv)     │                    │          (Arista vEOS)             │              │    (IOSv)    │
+║    │      │       │                    │      │                  │          │              │       │      │
+║    │ Gi0/1│       │                    │ Eth1 │             Eth2 │          │              │  Gi0/1│      │
+║    │10.20.1.1     │                    │10.0.0.1           10.10.0.1        │              │10.20.2.1     │
+║    │      │       │                    │      │                  │          │              │       │      │
+║    │      │       │                    │      │                  │          │              │       │      │
+║    │ ┌────┴────┐  │                    │ ┌────┴────┐      ┌──────┴───────┐  │              │  ┌────┴────┐ │
+║    │ │LAN-SW-A │  │                    │ │ MGMT-SW │      │ SERVICES-SW  │  │              │  │LAN-SW-B │ │
+║    │ │(EthSW)  │  │                    │ │(IOSvL2) │      │   (IOSvL2)   │  │              │  │(EthSW)  │ │
+║    │ └────┬────┘  │                    │ └────┬────┘      └──────┬───────┘  │              │  └────┬────┘ │
+║    │      │       │                    │      │                  │          │              │       │      │
+║    │ ┌────┴────┐  │                    │      │                  │          │              │  ┌────┴────┐ │
+║    │ │Thin-A   │  │                    │ ┌────┴──────────┐  ┌────┴────────────────────┐    │  │Thin-B   │ │
+║    │ │(Debian) │  │                    │ │ MGMT VRF      │  │ SERVICES VRF            │    │  │(Windows)│ │
+║    │ │10.20.1.10  │                    │ │ 10.0.0.0/24   │  │ 10.10.0.0/24            │    │  │10.20.2.10 │
+║    │ └─────────┘  │                    │ │               │  │                         │    │  └─────────┘ │
+║    │              │                    │ │ puppet-master-1│  │ haproxy-1    10.10.0.10│    │              │
+║    └──────────────┘                    │ │ 10.0.0.10     │  │ haproxy-2    10.10.0.11│    └──────────────┘
+║                                        │ │ (puppetserver │  │ VIP          10.10.0.9 │                    
+║                                        │ │  +puppetdb    │  │ web-1        10.10.0.21│                    
+║                                        │ │  +foreman)    │  │ web-2        10.10.0.22│                    
+║                                        │ │               │  │ web-3        10.10.0.23│                    
+║                                        │ │ puppet-master-2│  │ terminal-1   10.10.0.31│                    
+║                                        │ │ 10.0.0.11     │  │ terminal-2   10.10.0.32│                    
+║                                        │ │               │  │ nfs-server   10.10.0.40│                    
+║                                        │ └───────────────┘  │ ssh-bastion  10.10.0.50│                    
+║                                        │                    └─────────────────────────┘                    
+║                                        └────────────────────────────────────────────────┘                  
+║                                                                                                          ║
+╠══════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+║                                            NAT CLOUD (Internet)                                          ║
+╠══════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                                          ║
+║                                           ┌─────────────┐                                                ║
+║                                           │  NAT Cloud  │                                                ║
+║                                           └──────┬──────┘                                                ║
+║                                                  │                                                       ║
+║                                           ┌──────┴──────┐                                                ║
+║                                           │   NAT-SW    │  (Cisco IOSvL2)                                ║
+║                                           │             │                                                ║
+║                                           └──────┬──────┘                                                ║
+║                                                  │                                                       ║
+║              ┌─────────────┬─────────────┬───────┴───────┬─────────────┬─────────────┐                   ║
+║              │             │             │               │             │             │                   ║
+║          VM:ens5       VM:ens5       VM:ens5         VM:ens5       VM:ens5       VM:ens5                 ║
+║       (puppet-m1)   (puppet-m2)   (haproxy-1)     (web-1)      (thin-a)     (alla VMs)                   ║
+║                                                                                                          ║
+║    Alla VMs andra nätverkskort (ens5) ansluts till NAT-SW för internetåtkomst                            ║
+║                                                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+```
+
+---
+
+## 3. Komponentlista
+
+### 3.1 Nätverksutrustning
+
+| # | Enhet | Typ | Image | RAM | Syfte |
+|---|-------|-----|-------|-----|-------|
+| 1 | PE1 | Router | Cisco IOSv 15.9 | 512 MB | Provider Edge 1 (mot DC) |
+| 2 | PE2 | Router | Cisco IOSv 15.9 | 512 MB | Provider Edge 2 (mot DC) |
+| 3 | PE-A | Router | Cisco IOSv 15.9 | 512 MB | Provider Edge (mot Branch A) |
+| 4 | PE-B | Router | Cisco IOSv 15.9 | 512 MB | Provider Edge (mot Branch B) |
+| 5 | CE-DC | Router | Arista vEOS | 2048 MB | Customer Edge DC (dual-homed) |
+| 6 | CE-A | Router | Cisco IOSv 15.9 | 512 MB | Customer Edge Branch A |
+| 7 | CE-B | Router | Cisco IOSv 15.9 | 512 MB | Customer Edge Branch B |
+| 8 | MGMT-SW | Switch | Cisco IOSvL2 15.2 | 512 MB | DC Management switch |
+| 9 | SERVICES-SW | Switch | Cisco IOSvL2 15.2 | 512 MB | DC Services switch |
+| 10 | LAN-SW-A | Switch | GNS3 Ethernet Switch | 0 MB | Branch A LAN switch |
+| 11 | LAN-SW-B | Switch | GNS3 Ethernet Switch | 0 MB | Branch B LAN switch |
+| 12 | NAT-SW | Switch | Cisco IOSvL2 15.2 | 512 MB | NAT distribution switch |
+
+**Subtotal nätverksutrustning: ~6.5 GB RAM**
+
+### 3.2 Servrar - MGMT VRF (DC)
+
+| # | Server | IP | OS | Disk | RAM | Tjänster |
+|---|--------|-----|-----|------|-----|----------|
+| 1 | puppet-master-1 | 10.0.0.10 | Debian 12 | 40 GB | 4096 MB | puppetserver, puppetdb, postgresql, foreman |
+| 2 | puppet-master-2 | 10.0.0.11 | Debian 12 | 40 GB | 2048 MB | puppetserver (ansluter till puppetdb på .10) |
+
+**Subtotal MGMT: ~6 GB RAM**
+
+### 3.3 Servrar - SERVICES VRF (DC)
+
+| # | Server | IP | OS | Disk | RAM | Tjänster |
+|---|--------|-----|-----|------|-----|----------|
+| 1 | haproxy-1 | 10.10.0.10 | Debian 12 | 20 GB | 512 MB | HAProxy, Keepalived (MASTER) |
+| 2 | haproxy-2 | 10.10.0.11 | Debian 12 | 20 GB | 512 MB | HAProxy, Keepalived (BACKUP) |
+| 3 | web-1 | 10.10.0.21 | Debian 12 | 20 GB | 512 MB | Apache2 |
+| 4 | web-2 | 10.10.0.22 | Debian 12 | 20 GB | 512 MB | Apache2 |
+| 5 | web-3 | 10.10.0.23 | Debian 12 | 20 GB | 512 MB | Apache2 |
+| 6 | terminal-1 | 10.10.0.31 | Debian 12 | 20 GB | 1024 MB | XRDP, NFS-mount |
+| 7 | terminal-2 | 10.10.0.32 | Debian 12 | 20 GB | 1024 MB | XRDP, NFS-mount |
+| 8 | nfs-server | 10.10.0.40 | Debian 12 | 40 GB | 512 MB | NFS-server |
+| 9 | ssh-bastion | 10.10.0.50 | Debian 12 | 20 GB | 512 MB | SSH + MFA (Google Authenticator) |
+
+**VIP: 10.10.0.9** (VRRP mellan haproxy-1 och haproxy-2)
+
+**Subtotal SERVICES: ~5.5 GB RAM**
+
+### 3.4 Branch-klienter
+
+| # | Klient | IP | OS | Disk | RAM | Syfte |
+|---|--------|-----|-----|------|-----|-------|
+| 1 | thin-client-a | 10.20.1.10 | Debian 12 | 20 GB | 1024 MB | Tunn klient Branch A |
+| 2 | thin-client-b | 10.20.2.10 | Windows 10 | 40 GB | 2048 MB | Tunn klient Branch B |
+
+**Subtotal Branch: ~3 GB RAM**
+
+---
+
+## 4. IP-adressplan
+
+### 4.1 Loopback-adresser (Router-ID)
+
+| Router | Loopback | AS | Roll |
+|--------|----------|-----|------|
+| PE1 | 2.2.2.1/32 | 65001 | Provider Edge 1 |
+| PE2 | 2.2.2.2/32 | 65001 | Provider Edge 2 |
+| PE-A | 2.2.2.10/32 | 65001 | Provider Edge Branch A |
+| PE-B | 2.2.2.11/32 | 65001 | Provider Edge Branch B |
+| CE-DC | 1.1.1.1/32 | 65000 | Customer Edge DC |
+| CE-A | 1.1.1.10/32 | 65000 | Customer Edge Branch A |
+| CE-B | 1.1.1.11/32 | 65000 | Customer Edge Branch B |
+
+### 4.2 WAN-länkar (Provider Core)
+
+| Länk | Subnät | Ände 1 (IP) | Ände 2 (IP) |
+|------|--------|-------------|-------------|
+| PE1 ↔ PE2 | 10.255.0.0/30 | PE1: .1 | PE2: .2 |
+| PE1 ↔ PE-A | 10.255.0.4/30 | PE1: .5 | PE-A: .6 |
+| PE2 ↔ PE-B | 10.255.0.8/30 | PE2: .9 | PE-B: .10 |
+
+### 4.3 WAN-länkar (CE ↔ PE)
+
+| Länk | Subnät | CE (IP) | PE (IP) |
+|------|--------|---------|---------|
+| CE-DC ↔ PE1 | 192.168.100.0/30 | CE-DC: .1 | PE1: .2 |
+| CE-DC ↔ PE2 | 192.168.100.4/30 | CE-DC: .5 | PE2: .6 |
+| CE-A ↔ PE-A | 192.168.101.0/30 | CE-A: .1 | PE-A: .2 |
+| CE-B ↔ PE-B | 192.168.102.0/30 | CE-B: .1 | PE-B: .2 |
+
+### 4.4 VRF-subnät
+
+| Site | VRF | Subnät | Gateway | Syfte |
+|------|-----|--------|---------|-------|
+| DC | MGMT | 10.0.0.0/24 | 10.0.0.1 | Puppet, management |
+| DC | SERVICES | 10.10.0.0/24 | 10.10.0.1 | Webb, terminal, NFS |
+| Branch A | USER | 10.20.1.0/24 | 10.20.1.1 | Tunna klienter |
+| Branch B | USER | 10.20.2.0/24 | 10.20.2.1 | Tunna klienter |
+
+### 4.5 MGMT VRF - Detaljerade IP-adresser (10.0.0.0/24)
+
+| Enhet | IP-adress | Syfte |
+|-------|-----------|-------|
+| CE-DC (Gateway) | 10.0.0.1 | Default gateway |
+| puppet-master-1 | 10.0.0.10 | Primär Puppet + PuppetDB + Foreman |
+| puppet-master-2 | 10.0.0.11 | Sekundär Puppet |
+| (Reserverade) | 10.0.0.2-9 | Framtida bruk |
+| (Reserverade) | 10.0.0.12-254 | Framtida bruk |
+
+### 4.6 SERVICES VRF - Detaljerade IP-adresser (10.10.0.0/24)
+
+| Enhet | IP-adress | Syfte |
+|-------|-----------|-------|
+| CE-DC (Gateway) | 10.10.0.1 | Default gateway |
+| HAProxy VIP | 10.10.0.9 | VRRP Virtual IP |
+| haproxy-1 | 10.10.0.10 | Load Balancer (MASTER) |
+| haproxy-2 | 10.10.0.11 | Load Balancer (BACKUP) |
+| web-1 | 10.10.0.21 | Apache webserver |
+| web-2 | 10.10.0.22 | Apache webserver |
+| web-3 | 10.10.0.23 | Apache webserver |
+| terminal-1 | 10.10.0.31 | XRDP terminalserver |
+| terminal-2 | 10.10.0.32 | XRDP terminalserver |
+| nfs-server | 10.10.0.40 | NFS för hemkataloger |
+| ssh-bastion | 10.10.0.50 | SSH gateway med MFA |
+
+### 4.7 USER VRF - Branch A (10.20.1.0/24)
+
+| Enhet | IP-adress | Syfte |
+|-------|-----------|-------|
+| CE-A (Gateway) | 10.20.1.1 | Default gateway |
+| thin-client-a | 10.20.1.10 | Debian tunn klient |
+| (DHCP-pool) | 10.20.1.100-200 | Dynamiska adresser |
+
+### 4.8 USER VRF - Branch B (10.20.2.0/24)
+
+| Enhet | IP-adress | Syfte |
+|-------|-----------|-------|
+| CE-B (Gateway) | 10.20.2.1 | Default gateway |
+| thin-client-b | 10.20.2.10 | Windows tunn klient |
+| (DHCP-pool) | 10.20.2.100-200 | Dynamiska adresser |
+
+---
+
+## 5. Detaljerat Kopplingsschema
+
+### 5.1 Provider Core - Interna länkar
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           PROVIDER CORE KOPPLINGAR                              │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│   PE1                              PE2                                          │
+│   ├── Gi0/0 ←───────────────────→ (till CE-DC)                                 │
+│   ├── Gi0/1 ←──10.255.0.0/30───→ Gi0/1 (PE2)                                   │
+│   ├── Gi0/2 ←──10.255.0.4/30───→ Gi0/1 (PE-A)                                  │
+│   └── Lo0: 2.2.2.1                                                              │
+│                                                                                 │
+│   PE2                                                                           │
+│   ├── Gi0/0 ←───────────────────→ (till CE-DC)                                 │
+│   ├── Gi0/1 ←──10.255.0.0/30───→ Gi0/1 (PE1)                                   │
+│   ├── Gi0/2 ←──10.255.0.8/30───→ Gi0/1 (PE-B)                                  │
+│   └── Lo0: 2.2.2.2                                                              │
+│                                                                                 │
+│   PE-A                                                                          │
+│   ├── Gi0/0 ←───────────────────→ (till CE-A)                                  │
+│   ├── Gi0/1 ←──10.255.0.4/30───→ Gi0/2 (PE1)                                   │
+│   └── Lo0: 2.2.2.10                                                             │
+│                                                                                 │
+│   PE-B                                                                          │
+│   ├── Gi0/0 ←───────────────────→ (till CE-B)                                  │
+│   ├── Gi0/1 ←──10.255.0.8/30───→ Gi0/2 (PE2)                                   │
+│   └── Lo0: 2.2.2.11                                                             │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 5.2 CE till PE - eBGP-länkar
+
+| Från | Interface | IP | Till | Interface | IP | Subnät |
+|------|-----------|-----|------|-----------|-----|--------|
+| CE-DC | Eth3 | 192.168.100.1 | PE1 | Gi0/0 | 192.168.100.2 | 192.168.100.0/30 |
+| CE-DC | Eth4 | 192.168.100.5 | PE2 | Gi0/0 | 192.168.100.6 | 192.168.100.4/30 |
+| CE-A | Gi0/0 | 192.168.101.1 | PE-A | Gi0/0 | 192.168.101.2 | 192.168.101.0/30 |
+| CE-B | Gi0/0 | 192.168.102.1 | PE-B | Gi0/0 | 192.168.102.2 | 192.168.102.0/30 |
+
+### 5.3 CE till L2-switchar - LAN-länkar
+
+| Från | Interface | IP | Till | Port | VRF |
+|------|-----------|-----|------|------|-----|
+| CE-DC | Eth1 | 10.0.0.1 | MGMT-SW | Gi0/0 | MGMT |
+| CE-DC | Eth2 | 10.10.0.1 | SERVICES-SW | Gi0/0 | SERVICES |
+| CE-A | Gi0/1 | 10.20.1.1 | LAN-SW-A | Port 1 | USER |
+| CE-B | Gi0/1 | 10.20.2.1 | LAN-SW-B | Port 1 | USER |
+
+### 5.4 CE-DC (Arista vEOS) - Interface-mappning
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    CE-DC (Arista vEOS)                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   Interface    │  Anslutning          │  IP            │  VRF   │
+│   ─────────────┼──────────────────────┼────────────────┼────────│
+│   Loopback0    │  -                   │  1.1.1.1/32    │  -     │
+│   Ethernet1    │  → MGMT-SW Gi0/0     │  10.0.0.1/24   │  MGMT  │
+│   Ethernet2    │  → SERVICES-SW Gi0/0 │  10.10.0.1/24  │ SERVICES│
+│   Ethernet3    │  → PE1 Gi0/0         │  192.168.100.1 │  -     │
+│   Ethernet4    │  → PE2 Gi0/0         │  192.168.100.5 │  -     │
+│   Management1  │  (ej använd)         │  -             │  -     │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 5.5 MGMT-SW (Cisco IOSvL2) - Portmappning
+
+| Port | Anslutning | Kommentar |
+|------|------------|-----------|
+| Gi0/0 | CE-DC Eth1 | Uplink till gateway |
+| Gi0/1 | puppet-master-1 (ens4) | Primär Puppet |
+| Gi0/2 | puppet-master-2 (ens4) | Sekundär Puppet |
+| Gi0/3 | (Reserverad) | - |
+| Gi1/0 | (Reserverad) | - |
+
+### 5.6 SERVICES-SW (Cisco IOSvL2) - Portmappning
+
+| Port | Anslutning | IP | Kommentar |
+|------|------------|-----|-----------|
+| Gi0/0 | CE-DC Eth2 | - | Uplink till gateway |
+| Gi0/1 | haproxy-1 (ens4) | 10.10.0.10 | LB Master |
+| Gi0/2 | haproxy-2 (ens4) | 10.10.0.11 | LB Backup |
+| Gi0/3 | web-1 (ens4) | 10.10.0.21 | Webserver |
+| Gi1/0 | web-2 (ens4) | 10.10.0.22 | Webserver |
+| Gi1/1 | web-3 (ens4) | 10.10.0.23 | Webserver |
+| Gi1/2 | terminal-1 (ens4) | 10.10.0.31 | Terminalserver |
+| Gi1/3 | terminal-2 (ens4) | 10.10.0.32 | Terminalserver |
+| Gi2/0 | nfs-server (ens4) | 10.10.0.40 | NFS |
+| Gi2/1 | ssh-bastion (ens4) | 10.10.0.50 | SSH Gateway |
+
+### 5.7 LAN-SW-A (GNS3 Ethernet Switch) - Portmappning
+
+| Port | Anslutning | IP |
+|------|------------|-----|
+| Port 1 | CE-A Gi0/1 | - |
+| Port 2 | thin-client-a (ens4) | 10.20.1.10 |
+
+### 5.8 LAN-SW-B (GNS3 Ethernet Switch) - Portmappning
+
+| Port | Anslutning | IP |
+|------|------------|-----|
+| Port 1 | CE-B Gi0/1 | - |
+| Port 2 | thin-client-b (ens4) | 10.20.2.10 |
+
+### 5.9 NAT-SW (Cisco IOSvL2) - Portmappning
+
+| Port | Anslutning | Kommentar |
+|------|------------|-----------|
+| Gi0/0 | NAT Cloud | Uplink till internet |
+| Gi0/1 | puppet-master-1 (ens5) | NAT för VM |
+| Gi0/2 | puppet-master-2 (ens5) | NAT för VM |
+| Gi0/3 | haproxy-1 (ens5) | NAT för VM |
+| Gi1/0 | haproxy-2 (ens5) | NAT för VM |
+| Gi1/1 | web-1 (ens5) | NAT för VM |
+| Gi1/2 | web-2 (ens5) | NAT för VM |
+| Gi1/3 | web-3 (ens5) | NAT för VM |
+| Gi2/0 | terminal-1 (ens5) | NAT för VM |
+| Gi2/1 | terminal-2 (ens5) | NAT för VM |
+| Gi2/2 | nfs-server (ens5) | NAT för VM |
+| Gi2/3 | ssh-bastion (ens5) | NAT för VM |
+| Gi3/0 | thin-client-a (ens5) | NAT för VM |
+| Gi3/1 | thin-client-b (ens5) | NAT för VM |
+
+### 5.10 VM Nätverkskort - Översikt
+
+Varje VM har **två nätverkskort**:
+
+| VM | ens4 (Första NIC) | ens5 (Andra NIC) |
+|----|-------------------|------------------|
+| puppet-master-1 | MGMT-SW Gi0/1 | NAT-SW Gi0/1 |
+| puppet-master-2 | MGMT-SW Gi0/2 | NAT-SW Gi0/2 |
+| haproxy-1 | SERVICES-SW Gi0/1 | NAT-SW Gi0/3 |
+| haproxy-2 | SERVICES-SW Gi0/2 | NAT-SW Gi1/0 |
+| web-1 | SERVICES-SW Gi0/3 | NAT-SW Gi1/1 |
+| web-2 | SERVICES-SW Gi1/0 | NAT-SW Gi1/2 |
+| web-3 | SERVICES-SW Gi1/1 | NAT-SW Gi1/3 |
+| terminal-1 | SERVICES-SW Gi1/2 | NAT-SW Gi2/0 |
+| terminal-2 | SERVICES-SW Gi1/3 | NAT-SW Gi2/1 |
+| nfs-server | SERVICES-SW Gi2/0 | NAT-SW Gi2/2 |
+| ssh-bastion | SERVICES-SW Gi2/1 | NAT-SW Gi2/3 |
+| thin-client-a | LAN-SW-A Port 2 | NAT-SW Gi3/0 |
+| thin-client-b | LAN-SW-B Port 2 | NAT-SW Gi3/1 |
+
+---
+
+## 6. VRF-design
+
+### 6.1 VRF-översikt
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    CE-DC VRF STRUKTUR                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐     │
+│   │   VRF: MGMT  │    │VRF: SERVICES │    │  Global/     │     │
+│   │              │    │              │    │  Default     │     │
+│   │ RD: 65000:1  │    │ RD: 65000:2  │    │              │     │
+│   │              │    │              │    │  BGP till    │     │
+│   │ 10.0.0.0/24  │    │ 10.10.0.0/24 │    │  PE1 & PE2   │     │
+│   │              │    │              │    │              │     │
+│   │ Interface:   │    │ Interface:   │    │ Interfaces:  │     │
+│   │   Eth1       │    │   Eth2       │    │ Eth3, Eth4   │     │
+│   └──────────────┘    └──────────────┘    └──────────────┘     │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 6.2 Route Distinguisher (RD)
+
+| VRF | RD | Site |
+|-----|-----|------|
+| MGMT | 65000:1 | DC |
+| SERVICES | 65000:2 | DC |
+| USER | 65000:10 | Branch A |
+| USER | 65000:20 | Branch B |
+
+### 6.3 Route Leaking
+
+För att trafik ska kunna flöda mellan VRF:er och branches behövs route leaking på CE-DC:
+
+```
+MGMT VRF (10.0.0.0/24)
+    ↓ leak till Global
+    ↓ annonseras via BGP
+    ↓
+SERVICES VRF (10.10.0.0/24)
+    ↓ leak till Global
+    ↓ annonseras via BGP
+    ↓
+Global VRF (BGP)
+    ↓
+    ↓ tar emot från PE:
+    ├── 10.20.1.0/24 (Branch A)
+    └── 10.20.2.0/24 (Branch B)
+```
+
+### 6.4 Åtkomstmatris mellan VRF
+
+| Från ↓ Till → | MGMT | SERVICES | USER (Branch) |
+|---------------|------|----------|---------------|
+| **MGMT** | ✅ Full | ✅ Full | ✅ Full |
+| **SERVICES** | ❌ Blockerad | ✅ Full | ⚠️ Endast svar |
+| **USER** | ❌ Blockerad | ⚠️ HAProxy, Terminal | ✅ Full |
+
+---
+
+## 7. BGP-design och Säkerhet
+
+### 7.1 AS-nummer
+
+| Entitet | AS-nummer | Roll |
+|---------|-----------|------|
+| Enterprise (kund) | AS 65000 | CE-DC, CE-A, CE-B |
+| Provider | AS 65001 | PE1, PE2, PE-A, PE-B |
+
+### 7.2 BGP-sessioner
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      BGP SESSION ÖVERSIKT                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  PROVIDER CORE (iBGP full mesh över OSPF):                      │
+│  ─────────────────────────────────────────                      │
+│  PE1 (2.2.2.1) ←──iBGP──→ PE2 (2.2.2.2)                        │
+│  PE1 (2.2.2.1) ←──iBGP──→ PE-A (2.2.2.10)                      │
+│  PE1 (2.2.2.1) ←──iBGP──→ PE-B (2.2.2.11)                      │
+│  PE2 (2.2.2.2) ←──iBGP──→ PE-A (2.2.2.10)                      │
+│  PE2 (2.2.2.2) ←──iBGP──→ PE-B (2.2.2.11)                      │
+│  PE-A (2.2.2.10) ←─iBGP──→ PE-B (2.2.2.11)                     │
+│                                                                 │
+│  CE ↔ PE (eBGP):                                               │
+│  ───────────────                                                │
+│  CE-DC ←──eBGP──→ PE1  (192.168.100.0/30)                      │
+│  CE-DC ←──eBGP──→ PE2  (192.168.100.4/30)                      │
+│  CE-A  ←──eBGP──→ PE-A (192.168.101.0/30)                      │
+│  CE-B  ←──eBGP──→ PE-B (192.168.102.0/30)                      │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 7.3 BGP Communities
+
+| Community | Betydelse | Användning |
+|-----------|-----------|------------|
+| 65000:110 | Prefer PE1 | Primary path för DC |
+| 65000:120 | Prefer PE2 | Backup path för DC |
+| 65000:200 | MGMT prefix | Identifiera management-trafik |
+| 65000:210 | SERVICES prefix | Identifiera service-trafik |
+| 65000:220 | USER prefix | Identifiera användartrafik |
+
+### 7.4 Prefix-lists
+
+**PE-routrar - Vad de accepterar från CE:**
+
+```
+! PE1 och PE2 - accepterar från CE-DC:
+ip prefix-list FROM-DC seq 10 permit 10.0.0.0/24      ! MGMT
+ip prefix-list FROM-DC seq 20 permit 10.10.0.0/24     ! SERVICES
+ip prefix-list FROM-DC seq 1000 deny 0.0.0.0/0 le 32  ! Deny all else
+
+! PE-A - accepterar från CE-A:
+ip prefix-list FROM-BRANCH-A seq 10 permit 10.20.1.0/24  ! USER Branch A
+ip prefix-list FROM-BRANCH-A seq 1000 deny 0.0.0.0/0 le 32
+
+! PE-B - accepterar från CE-B:
+ip prefix-list FROM-BRANCH-B seq 10 permit 10.20.2.0/24  ! USER Branch B
+ip prefix-list FROM-BRANCH-B seq 1000 deny 0.0.0.0/0 le 32
+```
+
+**CE-routrar - Vad de accepterar från PE:**
+
+```
+! CE-DC - accepterar:
+ip prefix-list FROM-PROVIDER seq 10 permit 10.20.1.0/24  ! Branch A
+ip prefix-list FROM-PROVIDER seq 20 permit 10.20.2.0/24  ! Branch B
+ip prefix-list FROM-PROVIDER seq 1000 deny 0.0.0.0/0 le 32
+
+! CE-A och CE-B - accepterar:
+ip prefix-list FROM-PROVIDER seq 10 permit 10.0.0.0/24   ! DC MGMT
+ip prefix-list FROM-PROVIDER seq 20 permit 10.10.0.0/24  ! DC SERVICES
+ip prefix-list FROM-PROVIDER seq 30 permit 10.20.1.0/24  ! Branch A
+ip prefix-list FROM-PROVIDER seq 40 permit 10.20.2.0/24  ! Branch B
+ip prefix-list FROM-PROVIDER seq 1000 deny 0.0.0.0/0 le 32
+```
+
+### 7.5 BGP Säkerhetsfunktioner
+
+| Funktion | Konfiguration | Syfte |
+|----------|---------------|-------|
+| Max-prefix | `neighbor X maximum-prefix 100 80 warning-only` | Skydd mot route leaks |
+| BFD | `neighbor X fall-over bfd` | Snabb failover (300ms) |
+| Prefix-filter IN | `neighbor X prefix-list IN in` | Filtrera inkommande |
+| Prefix-filter OUT | `neighbor X prefix-list OUT out` | Filtrera utgående |
+
+### 7.6 Traffic Engineering med LOCAL_PREF
+
+```
+! CE-DC: Prefer PE1 (higher LOCAL_PREF = preferred)
+route-map PREFER-PE1 permit 10
+  set local-preference 150
+
+route-map PREFER-PE2 permit 10
+  set local-preference 100
+
+! Applicera på BGP neighbors:
+neighbor 192.168.100.2 route-map PREFER-PE1 in   ! PE1
+neighbor 192.168.100.6 route-map PREFER-PE2 in   ! PE2
+```
+
+---
+
+## 8. Observability
+
+### 8.1 Syslog
+
+**Centraliserad loggserver:** puppet-master-1 (10.0.0.10)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      SYSLOG FLÖDE                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   CE-DC ─────┐                                                  │
+│   CE-A  ─────┼──── UDP 514 ────→  puppet-master-1              │
+│   CE-B  ─────┤                    (rsyslog)                     │
+│              │                    /var/log/remote/              │
+│   Alla VMs ──┘                                                  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Router-konfiguration (Cisco):**
+```
+logging host 10.0.0.10
+logging trap informational
+logging source-interface Loopback0
+```
+
+**Router-konfiguration (Arista):**
+```
+logging host 10.0.0.10
+logging source-interface Loopback0
+```
+
+### 8.2 SNMPv3
+
+| Parameter | Värde |
+|-----------|-------|
+| User | snmpuser |
+| Auth Protocol | SHA |
+| Auth Password | Lab3SNMPauth! |
+| Priv Protocol | AES128 |
+| Priv Password | Lab3SNMPpriv! |
+| Access | Endast från 10.0.0.0/24 |
+
+**Router-konfiguration (Cisco):**
+```
+snmp-server group LAB3-RO v3 priv read LAB3-VIEW access 99
+snmp-server view LAB3-VIEW iso included
+snmp-server user snmpuser LAB3-RO v3 auth sha Lab3SNMPauth! priv aes 128 Lab3SNMPpriv!
+access-list 99 permit 10.0.0.0 0.0.0.255
+```
+
+### 8.3 NetFlow/IPFIX
+
+**Flow collector:** haproxy-1 (10.10.0.10) med nfcapd
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     NETFLOW FLÖDE                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   CE-DC ─────┐                                                  │
+│   CE-A  ─────┼──── NetFlow v9 UDP 2055 ────→  haproxy-1        │
+│   CE-B  ─────┘                                 (nfcapd)         │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Router-konfiguration (Cisco):**
+```
+ip flow-export version 9
+ip flow-export destination 10.10.0.10 2055
+ip flow-export source Loopback0
+
+interface GigabitEthernet0/1
+  ip flow ingress
+  ip flow egress
+```
+
+---
+
+## 9. Byggordning (Faser)
+
+### Fas-översikt
+
+| Fas | Beskrivning | Aktiva enheter | ~RAM |
+|-----|-------------|----------------|------|
+| 1 | Provider Core | PE1, PE2, PE-A, PE-B | 2 GB |
+| 2 | Customer Edge + L2 | +CE-DC, CE-A, CE-B, alla switchar | 6 GB |
+| 3 | Puppet Infrastructure | CE-DC, MGMT-SW, puppet-master-1/2, NAT-SW | 8 GB |
+| 4 | DC Services | CE-DC, SERVICES-SW, alla DC-servrar | 8 GB |
+| 5 | Branch A | +PE1, PE-A, CE-A, LAN-SW-A, thin-client-a | 8 GB |
+| 6 | Branch B | +PE2, PE-B, CE-B, LAN-SW-B, thin-client-b | 8 GB |
+| 7 | Integration | Allt (ev. pausa puppet-master-2) | 12-14 GB |
+
+### Fas 1: Provider Core
+
+**Mål:** iBGP mesh mellan alla PE-routrar, OSPF för underliggande konnektivitet
+
+**Aktiva enheter:**
+- PE1, PE2, PE-A, PE-B
+
+**Test:**
+```
+! På alla PE-routrar:
+show ip ospf neighbor
+show ip bgp summary
+ping 2.2.2.1    ! PE1 loopback
+ping 2.2.2.2    ! PE2 loopback
+ping 2.2.2.10   ! PE-A loopback
+ping 2.2.2.11   ! PE-B loopback
+```
+
+**Förväntat resultat:**
+- OSPF FULL adjacency mellan alla PE
+- BGP Established mellan alla PE (iBGP full mesh)
+- Alla loopbacks pingbara
+
+### Fas 2: Customer Edge + L2
+
+**Mål:** eBGP-sessioner upp mellan CE och PE, VRF på CE-DC
+
+**Aktiva enheter:**
+- Fas 1 + CE-DC, CE-A, CE-B
+- MGMT-SW, SERVICES-SW, LAN-SW-A, LAN-SW-B, NAT-SW
+
+**Test:**
+```
+! På CE-DC:
+show ip bgp summary
+show vrf
+
+! På CE-A:
+show ip bgp summary
+
+! På PE1:
+show ip bgp
+! Ska se: 10.0.0.0/24, 10.10.0.0/24 från CE-DC
+!         10.20.1.0/24 från CE-A (via PE-A)
+```
+
+**Förväntat resultat:**
+- eBGP Established på alla CE↔PE-sessioner
+- DC-prefix (10.0.0.0/24, 10.10.0.0/24) synliga i provider core
+- Branch-prefix (10.20.1.0/24, 10.20.2.0/24) synliga i provider core
+
+### Fas 3: Puppet Infrastructure
+
+**Mål:** Fungerande Puppet-miljö med puppetserver, puppetdb, foreman
+
+**Aktiva enheter:**
+- CE-DC, MGMT-SW, NAT-SW
+- puppet-master-1, puppet-master-2
+
+**Pausa:** PE1, PE2, PE-A, PE-B, CE-A, CE-B (inte nödvändiga)
+
+**Test:**
+```bash
+# På puppet-master-1:
+sudo systemctl status puppetserver
+sudo systemctl status puppetdb
+curl -k https://localhost:8140/status/v1/simple
+
+# På puppet-master-2:
+sudo /opt/puppetlabs/bin/puppet agent --test
+```
+
+**Förväntat resultat:**
+- puppetserver körs på båda masters
+- puppetdb körs på puppet-master-1
+- Foreman UI tillgänglig på https://10.0.0.10
+
+### Fas 4: DC Services
+
+**Mål:** Alla DC-tjänster körs och är nåbara
+
+**Aktiva enheter:**
+- CE-DC, SERVICES-SW, NAT-SW
+- Alla servrar i SERVICES VRF
+- (Valfritt: MGMT-SW + puppet-masters för config)
+
+**Test:**
+```bash
+# Test HAProxy VIP:
+curl http://10.10.0.9
+
+# Test load balancing (kör flera gånger):
+for i in {1..6}; do curl -s http://10.10.0.9 | grep -i server; done
+
+# Test RDP:
+xfreerdp /v:10.10.0.31 /u:user01 /p:password
+
+# Test NFS:
+showmount -e 10.10.0.40
+
+# Test SSH-bastion (med MFA):
+ssh admin@10.10.0.50
+```
+
+**Förväntat resultat:**
+- HAProxy VIP (10.10.0.9) svarar
+- Trafik lastbalanseras mellan web-1, web-2, web-3
+- RDP till terminal-1 och terminal-2 fungerar
+- NFS-export synlig
+- SSH med MFA fungerar
+
+### Fas 5: Branch A
+
+**Mål:** Debian thin client kan nå DC-tjänster
+
+**Aktiva enheter:**
+- CE-DC, SERVICES-SW (minst HAProxy + terminal)
+- PE1, PE-A, CE-A, LAN-SW-A, NAT-SW
+- thin-client-a
+
+**Test från thin-client-a:**
+```bash
+# Test routing:
+ping 10.20.1.1      # Gateway
+ping 10.10.0.9      # HAProxy VIP
+traceroute 10.10.0.9
+
+# Test webb:
+curl http://10.10.0.9
+
+# Test RDP:
+xfreerdp /v:10.10.0.31 /u:user01 /p:password
+```
+
+**Förväntat resultat:**
+- thin-client-a kan pinga DC-tjänster
+- Webbtjänst fungerar från Branch A
+- RDP till terminalserver fungerar
+
+### Fas 6: Branch B
+
+**Mål:** Windows thin client kan nå DC-tjänster
+
+**Aktiva enheter:**
+- CE-DC, SERVICES-SW
+- PE2, PE-B, CE-B, LAN-SW-B, NAT-SW
+- thin-client-b
+
+**Test från thin-client-b (Windows):**
+```cmd
+ping 10.10.0.9
+curl http://10.10.0.9
+mstsc /v:10.10.0.31
+```
+
+**Förväntat resultat:**
+- Windows-klient kan nå DC
+- RDP fungerar
+
+### Fas 7: Full Integration
+
+**Mål:** Alla komponenter fungerar tillsammans
+
+**Aktiva enheter:**
+- Alla (pausa puppet-master-2 om RAM-brist)
+
+**Test:**
+1. BGP-routes propageras korrekt mellan alla sites
+2. Failover: stoppa PE1, verifiera trafik via PE2
+3. VRRP: stoppa haproxy-1, verifiera VIP flyttar till haproxy-2
+4. End-to-end: Branch A/B → DC services
+
+---
+
+## 10. Fas 1: Provider Core - Konfigurationsguide
+
+### 10.1 Översikt
+
+I denna fas konfigurerar vi provider-nätverket med 4 PE-routrar:
+- **PE1** och **PE2** är anslutna till DC
+- **PE-A** är ansluten till Branch A
+- **PE-B** är ansluten till Branch B
+
+Alla PE-routrar kör:
+- **OSPF** för intern routing (IGP)
+- **iBGP full mesh** för att utbyta kundprefix
+
+### 10.2 GNS3 Setup för Fas 1
+
+**Skapa följande i GNS3:**
+
+1. Dra in 4 st Cisco IOSv-routrar
+2. Namnge dem: PE1, PE2, PE-A, PE-B
+3. Koppla enligt schemat nedan:
+
+```
+PE1 Gi0/1 ────────────────── PE2 Gi0/1
+PE1 Gi0/2 ────────────────── PE-A Gi0/1
+PE2 Gi0/2 ────────────────── PE-B Gi0/1
+```
+
+### 10.3 PE1 Konfiguration
+
+```
+!========================================
+! PE1 - Provider Edge Router 1
+! Ansluten till: CE-DC, PE2, PE-A
+!========================================
+
+enable
+configure terminal
+
+hostname PE1
+
+! Loopback för Router-ID och iBGP
+interface Loopback0
+ ip address 2.2.2.1 255.255.255.255
+ no shutdown
+
+! Länk till CE-DC (konfigureras i Fas 2)
+interface GigabitEthernet0/0
+ description Link to CE-DC (ACTIVE)
+ ip address 192.168.100.2 255.255.255.252
+ no shutdown
+
+! Länk till PE2
+interface GigabitEthernet0/1
+ description Link to PE2
+ ip address 10.255.0.1 255.255.255.252
+ no shutdown
+
+! Länk till PE-A
+interface GigabitEthernet0/2
+ description Link to PE-A
+ ip address 10.255.0.5 255.255.255.252
+ no shutdown
+
+! OSPF - IGP för provider core
+router ospf 1
+ router-id 2.2.2.1
+ passive-interface default
+ no passive-interface GigabitEthernet0/1
+ no passive-interface GigabitEthernet0/2
+ network 2.2.2.1 0.0.0.0 area 0
+ network 10.255.0.0 0.0.0.3 area 0
+ network 10.255.0.4 0.0.0.3 area 0
+
+! BGP - iBGP full mesh
+router bgp 65001
+ bgp router-id 2.2.2.1
+ bgp log-neighbor-changes
+ 
+ ! iBGP till PE2
+ neighbor 2.2.2.2 remote-as 65001
+ neighbor 2.2.2.2 update-source Loopback0
+ neighbor 2.2.2.2 next-hop-self
+ 
+ ! iBGP till PE-A
+ neighbor 2.2.2.10 remote-as 65001
+ neighbor 2.2.2.10 update-source Loopback0
+ neighbor 2.2.2.10 next-hop-self
+ 
+ ! iBGP till PE-B
+ neighbor 2.2.2.11 remote-as 65001
+ neighbor 2.2.2.11 update-source Loopback0
+ neighbor 2.2.2.11 next-hop-self
+
+end
+write memory
+```
+
+### 10.4 PE2 Konfiguration
+
+```
+!========================================
+! PE2 - Provider Edge Router 2
+! Ansluten till: CE-DC, PE1, PE-B
+!========================================
+
+enable
+configure terminal
+
+hostname PE2
+
+! Loopback för Router-ID och iBGP
+interface Loopback0
+ ip address 2.2.2.2 255.255.255.255
+ no shutdown
+
+! Länk till CE-DC (konfigureras i Fas 2)
+interface GigabitEthernet0/0
+ description Link to CE-DC (STANDBY)
+ ip address 192.168.100.6 255.255.255.252
+ no shutdown
+
+! Länk till PE1
+interface GigabitEthernet0/1
+ description Link to PE1
+ ip address 10.255.0.2 255.255.255.252
+ no shutdown
+
+! Länk till PE-B
+interface GigabitEthernet0/2
+ description Link to PE-B
+ ip address 10.255.0.9 255.255.255.252
+ no shutdown
+
+! OSPF - IGP för provider core
+router ospf 1
+ router-id 2.2.2.2
+ passive-interface default
+ no passive-interface GigabitEthernet0/1
+ no passive-interface GigabitEthernet0/2
+ network 2.2.2.2 0.0.0.0 area 0
+ network 10.255.0.0 0.0.0.3 area 0
+ network 10.255.0.8 0.0.0.3 area 0
+
+! BGP - iBGP full mesh
+router bgp 65001
+ bgp router-id 2.2.2.2
+ bgp log-neighbor-changes
+ 
+ ! iBGP till PE1
+ neighbor 2.2.2.1 remote-as 65001
+ neighbor 2.2.2.1 update-source Loopback0
+ neighbor 2.2.2.1 next-hop-self
+ 
+ ! iBGP till PE-A
+ neighbor 2.2.2.10 remote-as 65001
+ neighbor 2.2.2.10 update-source Loopback0
+ neighbor 2.2.2.10 next-hop-self
+ 
+ ! iBGP till PE-B
+ neighbor 2.2.2.11 remote-as 65001
+ neighbor 2.2.2.11 update-source Loopback0
+ neighbor 2.2.2.11 next-hop-self
+
+end
+write memory
+```
+
+### 10.5 PE-A Konfiguration
+
+```
+!========================================
+! PE-A - Provider Edge Router for Branch A
+! Ansluten till: CE-A, PE1
+!========================================
+
+enable
+configure terminal
+
+hostname PE-A
+
+! Loopback för Router-ID och iBGP
+interface Loopback0
+ ip address 2.2.2.10 255.255.255.255
+ no shutdown
+
+! Länk till CE-A (konfigureras i Fas 2)
+interface GigabitEthernet0/0
+ description Link to CE-A
+ ip address 192.168.101.2 255.255.255.252
+ no shutdown
+
+! Länk till PE1
+interface GigabitEthernet0/1
+ description Link to PE1
+ ip address 10.255.0.6 255.255.255.252
+ no shutdown
+
+! OSPF - IGP för provider core
+router ospf 1
+ router-id 2.2.2.10
+ passive-interface default
+ no passive-interface GigabitEthernet0/1
+ network 2.2.2.10 0.0.0.0 area 0
+ network 10.255.0.4 0.0.0.3 area 0
+
+! BGP - iBGP full mesh
+router bgp 65001
+ bgp router-id 2.2.2.10
+ bgp log-neighbor-changes
+ 
+ ! iBGP till PE1
+ neighbor 2.2.2.1 remote-as 65001
+ neighbor 2.2.2.1 update-source Loopback0
+ neighbor 2.2.2.1 next-hop-self
+ 
+ ! iBGP till PE2
+ neighbor 2.2.2.2 remote-as 65001
+ neighbor 2.2.2.2 update-source Loopback0
+ neighbor 2.2.2.2 next-hop-self
+ 
+ ! iBGP till PE-B
+ neighbor 2.2.2.11 remote-as 65001
+ neighbor 2.2.2.11 update-source Loopback0
+ neighbor 2.2.2.11 next-hop-self
+
+end
+write memory
+```
+
+### 10.6 PE-B Konfiguration
+
+```
+!========================================
+! PE-B - Provider Edge Router for Branch B
+! Ansluten till: CE-B, PE2
+!========================================
+
+enable
+configure terminal
+
+hostname PE-B
+
+! Loopback för Router-ID och iBGP
+interface Loopback0
+ ip address 2.2.2.11 255.255.255.255
+ no shutdown
+
+! Länk till CE-B (konfigureras i Fas 2)
+interface GigabitEthernet0/0
+ description Link to CE-B
+ ip address 192.168.102.2 255.255.255.252
+ no shutdown
+
+! Länk till PE2
+interface GigabitEthernet0/1
+ description Link to PE2
+ ip address 10.255.0.10 255.255.255.252
+ no shutdown
+
+! OSPF - IGP för provider core
+router ospf 1
+ router-id 2.2.2.11
+ passive-interface default
+ no passive-interface GigabitEthernet0/1
+ network 2.2.2.11 0.0.0.0 area 0
+ network 10.255.0.8 0.0.0.3 area 0
+
+! BGP - iBGP full mesh
+router bgp 65001
+ bgp router-id 2.2.2.11
+ bgp log-neighbor-changes
+ 
+ ! iBGP till PE1
+ neighbor 2.2.2.1 remote-as 65001
+ neighbor 2.2.2.1 update-source Loopback0
+ neighbor 2.2.2.1 next-hop-self
+ 
+ ! iBGP till PE2
+ neighbor 2.2.2.2 remote-as 65001
+ neighbor 2.2.2.2 update-source Loopback0
+ neighbor 2.2.2.2 next-hop-self
+ 
+ ! iBGP till PE-A
+ neighbor 2.2.2.10 remote-as 65001
+ neighbor 2.2.2.10 update-source Loopback0
+ neighbor 2.2.2.10 next-hop-self
+
+end
+write memory
+```
+
+### 10.7 Verifieringskommandon för Fas 1
+
+Kör dessa på **alla PE-routrar** efter konfiguration:
+
+```
+!--- Verifiera OSPF ---
+show ip ospf neighbor
+! Förväntat: FULL adjacency med grannar
+
+show ip ospf interface brief
+! Förväntat: Interfaces i Area 0
+
+show ip route ospf
+! Förväntat: Routes till alla loopbacks via OSPF
+
+!--- Verifiera BGP ---
+show ip bgp summary
+! Förväntat: Alla iBGP neighbors i "Established" state
+
+show ip bgp
+! Förväntat: (tomt än så länge - inga kundprefix ännu)
+
+!--- Verifiera konnektivitet ---
+ping 2.2.2.1 source Loopback0    ! PE1
+ping 2.2.2.2 source Loopback0    ! PE2
+ping 2.2.2.10 source Loopback0   ! PE-A
+ping 2.2.2.11 source Loopback0   ! PE-B
+! Förväntat: Alla svarar
+```
+
+### 10.8 Förväntad Output - OSPF Neighbor (PE1)
+
+```
+PE1#show ip ospf neighbor
+
+Neighbor ID     Pri   State           Dead Time   Address         Interface
+2.2.2.2          1    FULL/DR         00:00:38    10.255.0.2      GigabitEthernet0/1
+2.2.2.10         1    FULL/DR         00:00:33    10.255.0.6      GigabitEthernet0/2
+```
+
+### 10.9 Förväntad Output - BGP Summary (PE1)
+
+```
+PE1#show ip bgp summary
+
+Neighbor        V    AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd
+2.2.2.2         4 65001      10      12        1    0    0 00:05:23        0
+2.2.2.10        4 65001       8      10        1    0    0 00:04:15        0
+2.2.2.11        4 65001       7       9        1    0    0 00:03:45        0
+```
+
+### 10.10 Felsökning Fas 1
+
+**Problem: OSPF neighbor kommer inte upp**
+
+```
+! Kontrollera interface status
+show ip interface brief
+
+! Kontrollera OSPF på interface
+show ip ospf interface GigabitEthernet0/1
+
+! Kontrollera att OSPF network statements är korrekta
+show run | section ospf
+```
+
+**Problem: BGP session stuck in "Active"**
+
+```
+! Kontrollera att loopback är pingbar
+ping X.X.X.X source Loopback0
+
+! Kontrollera BGP neighbor config
+show run | section bgp
+
+! Debug (använd försiktigt!)
+debug ip bgp
+```
+
+---
+
+## Nästa steg
+
+När Fas 1 är verifierad, fortsätt med:
+
+**Fas 2:** Lägg till CE-routrar (CE-DC, CE-A, CE-B) och L2-switchar. Konfigurera eBGP mellan CE och PE.
+
+---
+
+*Dokument slut - Version 1.0*
