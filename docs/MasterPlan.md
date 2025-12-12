@@ -1256,5 +1256,592 @@ När Fas 1 är verifierad, fortsätt med:
 **Fas 2:** Lägg till CE-routrar (CE-DC, CE-A, CE-B) och L2-switchar. Konfigurera eBGP mellan CE och PE.
 
 ---
+## 11. Fas 2: Customer Edge + L2 Switchar
 
-*Dokument slut - Version 1.0*
+### 11.2 Nya enheter i Fas 2
+
+| Enhet | Typ | Image | RAM | Anslutning |
+|-------|-----|-------|-----|------------|
+| CE-DC | Router | Arista vEOS | 2048 MB | PE1, PE2, MGMT-SW, SERVICES-SW |
+| CE-A | Router | Cisco IOSv 15.9 | 512 MB | PE-A, LAN-SW-A |
+| CE-B | Router | Cisco IOSv 15.9 | 512 MB | PE-B, LAN-SW-B |
+| MGMT-SW | Switch | Cisco IOSvL2 15.2 | 512 MB | CE-DC Eth1 |
+| SERVICES-SW | Switch | Cisco IOSvL2 15.2 | 512 MB | CE-DC Eth2 |
+| NAT-SW | Switch | Cisco IOSvL2 15.2 | 512 MB | NAT Cloud |
+| LAN-SW-A | Switch | GNS3 Ethernet Switch | 0 MB | CE-A Gi0/1 |
+| LAN-SW-B | Switch | GNS3 Ethernet Switch | 0 MB | CE-B Gi0/1 |
+
+**Resurskrav:**
+- Totalt RAM Fas 2: ~6 GB
+- Totalt projekt (inkl. Fas 1): ~8 GB
+
+### 11.3 GNS3 Kopplingar för Fas 2
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         FAS 2 KOPPLINGAR                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  CE-DC (Arista vEOS):                                                       │
+│  ├── Eth1 ─────────────→ MGMT-SW Gi0/0                                      │
+│  ├── Eth2 ─────────────→ SERVICES-SW Gi0/0                                  │
+│  ├── Eth3 ─────────────→ PE1 Gi0/0                                          │
+│  └── Eth4 ─────────────→ PE2 Gi0/0                                          │
+│                                                                             │
+│  CE-A (Cisco IOSv):                                                         │
+│  ├── Gi0/0 ────────────→ PE-A Gi0/0                                         │
+│  └── Gi0/1 ────────────→ LAN-SW-A Port 1                                    │
+│                                                                             │
+│  CE-B (Cisco IOSv):                                                         │
+│  ├── Gi0/0 ────────────→ PE-B Gi0/0                                         │
+│  └── Gi0/1 ────────────→ LAN-SW-B Port 1                                    │
+│                                                                             │
+│  NAT-SW (Cisco IOSvL2):                                                     │
+│  └── Gi0/0 ────────────→ NAT Cloud                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 12. PE-routrar - Uppdatering för eBGP
+
+Innan vi konfigurerar CE-routrarna behöver vi lägga till eBGP-neighbors på PE-routrarna för att de ska svara på anropen.
+
+### 12.1 PE1 - Lägg till eBGP mot CE-DC
+```
+! PE1 - Lägg till eBGP neighbor mot CE-DC
+!========================================
+configure terminal
+
+! Prefix-list för vad vi accepterar från CE-DC
+ip prefix-list FROM-DC seq 10 permit 10.0.0.0/24
+ip prefix-list FROM-DC seq 20 permit 10.10.0.0/24
+ip prefix-list FROM-DC seq 1000 deny 0.0.0.0/0 le 32
+
+router bgp 65001
+ ! eBGP till CE-DC
+ neighbor 192.168.100.1 remote-as 65000
+ neighbor 192.168.100.1 description CE-DC-PRIMARY
+ neighbor 192.168.100.1 prefix-list FROM-DC in
+ neighbor 192.168.100.1 maximum-prefix 100 80 warning-only
+
+end
+write memory
+```
+
+### 12.2 PE2 - Lägg till eBGP mot CE-DC
+```
+! PE2 - Lägg till eBGP neighbor mot CE-DC
+!========================================
+configure terminal
+
+! Prefix-list för vad vi accepterar från CE-DC
+ip prefix-list FROM-DC seq 10 permit 10.0.0.0/24
+ip prefix-list FROM-DC seq 20 permit 10.10.0.0/24
+ip prefix-list FROM-DC seq 1000 deny 0.0.0.0/0 le 32
+
+router bgp 65001
+ ! eBGP till CE-DC
+ neighbor 192.168.100.5 remote-as 65000
+ neighbor 192.168.100.5 description CE-DC-SECONDARY
+ neighbor 192.168.100.5 prefix-list FROM-DC in
+ neighbor 192.168.100.5 maximum-prefix 100 80 warning-only
+
+end
+write memory
+```
+
+### 12.3 PE-A - Lägg till eBGP mot CE-A
+```
+! PE-A - Lägg till eBGP neighbor mot CE-A
+!========================================
+configure terminal
+
+! Prefix-list för vad vi accepterar från CE-A
+ip prefix-list FROM-BRANCH-A seq 10 permit 10.20.1.0/24
+ip prefix-list FROM-BRANCH-A seq 1000 deny 0.0.0.0/0 le 32
+
+router bgp 65001
+ ! eBGP till CE-A
+ neighbor 192.168.101.1 remote-as 65000
+ neighbor 192.168.101.1 description CE-A
+ neighbor 192.168.101.1 prefix-list FROM-BRANCH-A in
+ neighbor 192.168.101.1 maximum-prefix 50 80 warning-only
+
+end
+write memory
+```
+
+### 12.4 PE-B - Lägg till eBGP mot CE-B
+```
+! PE-B - Lägg till eBGP neighbor mot CE-B
+!========================================
+configure terminal
+
+! Prefix-list för vad vi accepterar från CE-B
+ip prefix-list FROM-BRANCH-B seq 10 permit 10.20.2.0/24
+ip prefix-list FROM-BRANCH-B seq 1000 deny 0.0.0.0/0 le 32
+
+router bgp 65001
+ ! eBGP till CE-B
+ neighbor 192.168.102.1 remote-as 65000
+ neighbor 192.168.102.1 description CE-B
+ neighbor 192.168.102.1 prefix-list FROM-BRANCH-B in
+ neighbor 192.168.102.1 maximum-prefix 50 80 warning-only
+
+end
+write memory
+```
+
+---
+
+## 13. CE-DC (Arista vEOS) Konfiguration
+
+### 13.1 Arista-specifika kommandon
+
+Arista vEOS liknar Cisco IOS men har några viktiga skillnader:
+
+- `ip routing` måste aktiveras globalt
+- VRF skapas med `vrf instance` (inte `ip vrf`)
+- Interfaces måste ha `no switchport` för att fungera som L3-interface
+- **VIKTIGT:** Prefix-lists och route-maps måste konfigureras INUTI `address-family ipv4` blocket (inte på neighbor-nivå utanför)
+- VRF-routing måste aktiveras explicit med `ip routing vrf <name>`
+
+**Initial inloggning:**
+
+1. Logga in med användare: `admin`
+2. Om ZeroTouch startar, kör: `zerotouch cancel`
+3. Vänta på omstart, logga in igen med `admin`
+
+### 13.2 CE-DC Fullständig Konfiguration (VERIFIED WORKING)
+```
+!========================================
+! CE-DC - Arista vEOS Configuration
+! Lab 3 - Grupp 2 SN24
+! Fas 2 - Verified Working
+!========================================
+
+! === GRUNDLÄGGANDE ===
+hostname CE-DC
+ip routing
+
+! === VRF INSTANCES ===
+vrf instance MGMT
+vrf instance SERVICES
+
+! === AKTIVERA ROUTING I VRFs ===
+ip routing vrf MGMT
+ip routing vrf SERVICES
+
+! === LOOPBACK ===
+interface Loopback0
+   ip address 1.1.1.1/32
+
+! === MGMT INTERFACE (VRF MGMT) ===
+interface Ethernet1
+   description MGMT-SW
+   no switchport
+   vrf MGMT
+   ip address 10.0.0.1/24
+   no shutdown
+
+! === SERVICES INTERFACE (VRF SERVICES) ===
+interface Ethernet2
+   description SERVICES-SW
+   no switchport
+   vrf SERVICES
+   ip address 10.10.0.1/24
+   no shutdown
+
+! === WAN TILL PE1 (PRIMARY) ===
+interface Ethernet3
+   description PE1-PRIMARY
+   no switchport
+   ip address 192.168.100.1/30
+   no shutdown
+
+! === WAN TILL PE2 (SECONDARY) ===
+interface Ethernet4
+   description PE2-SECONDARY
+   no switchport
+   ip address 192.168.100.5/30
+   no shutdown
+
+! === PREFIX-LISTS ===
+ip prefix-list ANNOUNCE-TO-PROVIDER seq 10 permit 10.0.0.0/24
+ip prefix-list ANNOUNCE-TO-PROVIDER seq 20 permit 10.10.0.0/24
+ip prefix-list ACCEPT-FROM-PROVIDER seq 10 permit 10.20.1.0/24
+ip prefix-list ACCEPT-FROM-PROVIDER seq 20 permit 10.20.2.0/24
+
+! === ROUTE-MAPS FÖR TRAFFIC ENGINEERING ===
+route-map PREFER-PE1 permit 10
+   set local-preference 150
+
+route-map PREFER-PE2 permit 10
+   set local-preference 100
+
+route-map SET-COMMUNITY-PE1 permit 10
+   set community 65000:110
+
+route-map SET-COMMUNITY-PE2 permit 10
+   set community 65000:120
+
+! === STATISKA ROUTES FÖR BGP ANNOUNCEMENT ===
+ip route 10.0.0.0/24 Null0
+ip route 10.10.0.0/24 Null0
+
+! === BGP KONFIGURATION ===
+! OBS: Prefix-lists och route-maps MÅSTE vara i address-family blocket på Arista!
+router bgp 65000
+   router-id 1.1.1.1
+   maximum-paths 2
+   
+   neighbor 192.168.100.2 remote-as 65001
+   neighbor 192.168.100.2 description PE1-PRIMARY
+   neighbor 192.168.100.2 send-community
+   neighbor 192.168.100.2 maximum-routes 100 warning-only
+   
+   neighbor 192.168.100.6 remote-as 65001
+   neighbor 192.168.100.6 description PE2-SECONDARY
+   neighbor 192.168.100.6 send-community
+   neighbor 192.168.100.6 maximum-routes 100 warning-only
+   
+   address-family ipv4
+      neighbor 192.168.100.2 activate
+      neighbor 192.168.100.2 prefix-list ACCEPT-FROM-PROVIDER in
+      neighbor 192.168.100.2 prefix-list ANNOUNCE-TO-PROVIDER out
+      neighbor 192.168.100.2 route-map PREFER-PE1 in
+      neighbor 192.168.100.2 route-map SET-COMMUNITY-PE1 out
+      
+      neighbor 192.168.100.6 activate
+      neighbor 192.168.100.6 prefix-list ACCEPT-FROM-PROVIDER in
+      neighbor 192.168.100.6 prefix-list ANNOUNCE-TO-PROVIDER out
+      neighbor 192.168.100.6 route-map PREFER-PE2 in
+      neighbor 192.168.100.6 route-map SET-COMMUNITY-PE2 out
+      
+      network 10.0.0.0/24
+      network 10.10.0.0/24
+
+! === SPARA ===
+end
+write
+```
+
+### 13.3 Verifiering
+```
+show ip interface brief
+show ip bgp summary
+show ip route vrf MGMT
+show ip route vrf SERVICES
+```
+
+**Förväntat resultat:**
+- Ethernet1-4: Ska ha korrekta IP-adresser och status `UP`
+- BGP Summary: Två neighbors ska synas med status `Estab` (Established)
+- VRF MGMT: Visar 10.0.0.0/24 connected
+- VRF SERVICES: Visar 10.10.0.0/24 connected
+
+---
+
+## 14. CE-A (Cisco IOSv) Konfiguration
+
+### 14.1 CE-A Fullständig Konfiguration (VERIFIED WORKING)
+```
+!========================================
+! CE-A - Cisco IOSv
+! Branch A Customer Edge Router
+! Single-homed till PE-A
+! INKLUDERAR allowas-in FIX
+!========================================
+
+enable
+configure terminal
+
+hostname CE-A
+
+!----------------------------------------
+! Loopback interface
+!----------------------------------------
+interface Loopback0
+ ip address 1.1.1.10 255.255.255.255
+
+!----------------------------------------
+! WAN-interface till PE-A
+!----------------------------------------
+interface GigabitEthernet0/0
+ description Link to PE-A
+ ip address 192.168.101.1 255.255.255.252
+ no shutdown
+
+!----------------------------------------
+! LAN-interface till användare
+!----------------------------------------
+interface GigabitEthernet0/1
+ description LAN Branch A (USER VRF)
+ ip address 10.20.1.1 255.255.255.0
+ no shutdown
+
+!----------------------------------------
+! Prefix-lists
+!----------------------------------------
+! Vad vi annonserar UT
+ip prefix-list ANNOUNCE-OUT seq 10 permit 10.20.1.0/24
+ip prefix-list ANNOUNCE-OUT seq 1000 deny 0.0.0.0/0 le 32
+
+! Vad vi accepterar IN
+ip prefix-list ACCEPT-IN seq 10 permit 10.0.0.0/24
+ip prefix-list ACCEPT-IN seq 20 permit 10.10.0.0/24
+ip prefix-list ACCEPT-IN seq 30 permit 10.20.2.0/24
+ip prefix-list ACCEPT-IN seq 1000 deny 0.0.0.0/0 le 32
+
+!----------------------------------------
+! BGP Konfiguration
+!----------------------------------------
+router bgp 65000
+ bgp router-id 1.1.1.10
+ bgp log-neighbor-changes
+ 
+ ! eBGP mot PE-A
+ neighbor 192.168.101.2 remote-as 65001
+ neighbor 192.168.101.2 description PE-A
+ neighbor 192.168.101.2 prefix-list ACCEPT-IN in
+ neighbor 192.168.101.2 prefix-list ANNOUNCE-OUT out
+ neighbor 192.168.101.2 maximum-prefix 100 80 warning-only
+ !
+ ! KRITISKT: allowas-in behövs för att ta emot routes från DC
+ ! (DC har samma AS 65000, BGP ser det som loop utan detta)
+ neighbor 192.168.101.2 allowas-in 2
+ neighbor 192.168.101.2 soft-reconfiguration inbound
+ 
+ ! Annonsera vårt LAN
+ network 10.20.1.0 mask 255.255.255.0
+
+!----------------------------------------
+! Statisk route för aggregat
+!----------------------------------------
+ip route 10.20.1.0 255.255.255.0 Null0
+
+end
+write memory
+```
+
+### 14.2 CE-A Verifiering
+```
+show ip interface brief
+show ip bgp summary
+show ip bgp
+```
+
+**Förväntat resultat:**
+- Gi0/0 och Gi0/1: up/up
+- BGP neighbor 192.168.101.2: Established, PfxRcd = 3
+- BGP table: 10.0.0.0/24, 10.10.0.0/24, 10.20.1.0/24 (lokalt), 10.20.2.0/24
+
+---
+
+## 15. CE-B (Cisco IOSv) Konfiguration
+
+### 15.1 CE-B Fullständig Konfiguration (VERIFIED WORKING)
+```
+!========================================
+! CE-B - Cisco IOSv
+! Branch B Customer Edge Router
+! Single-homed till PE-B
+! INKLUDERAR allowas-in FIX
+!========================================
+
+enable
+configure terminal
+
+hostname CE-B
+
+!----------------------------------------
+! Loopback interface
+!----------------------------------------
+interface Loopback0
+ ip address 1.1.1.11 255.255.255.255
+
+!----------------------------------------
+! WAN-interface till PE-B
+!----------------------------------------
+interface GigabitEthernet0/0
+ description Link to PE-B
+ ip address 192.168.102.1 255.255.255.252
+ no shutdown
+
+!----------------------------------------
+! LAN-interface till användare
+!----------------------------------------
+interface GigabitEthernet0/1
+ description LAN Branch B (USER VRF)
+ ip address 10.20.2.1 255.255.255.0
+ no shutdown
+
+!----------------------------------------
+! Prefix-lists
+!----------------------------------------
+! Vad vi annonserar UT
+ip prefix-list ANNOUNCE-OUT seq 10 permit 10.20.2.0/24
+ip prefix-list ANNOUNCE-OUT seq 1000 deny 0.0.0.0/0 le 32
+
+! Vad vi accepterar IN
+ip prefix-list ACCEPT-IN seq 10 permit 10.0.0.0/24
+ip prefix-list ACCEPT-IN seq 20 permit 10.10.0.0/24
+ip prefix-list ACCEPT-IN seq 30 permit 10.20.1.0/24
+ip prefix-list ACCEPT-IN seq 1000 deny 0.0.0.0/0 le 32
+
+!----------------------------------------
+! BGP Konfiguration
+!----------------------------------------
+router bgp 65000
+ bgp router-id 1.1.1.11
+ bgp log-neighbor-changes
+ 
+ ! eBGP mot PE-B
+ neighbor 192.168.102.2 remote-as 65001
+ neighbor 192.168.102.2 description PE-B
+ neighbor 192.168.102.2 prefix-list ACCEPT-IN in
+ neighbor 192.168.102.2 prefix-list ANNOUNCE-OUT out
+ neighbor 192.168.102.2 maximum-prefix 100 80 warning-only
+ !
+ ! KRITISKT: allowas-in behövs för att ta emot routes från DC
+ ! (DC har samma AS 65000, BGP ser det som loop utan detta)
+ neighbor 192.168.102.2 allowas-in 2
+ neighbor 192.168.102.2 soft-reconfiguration inbound
+ 
+ ! Annonsera vårt LAN
+ network 10.20.2.0 mask 255.255.255.0
+
+!----------------------------------------
+! Statisk route för aggregat
+!----------------------------------------
+ip route 10.20.2.0 255.255.255.0 Null0
+
+end
+write memory
+```
+
+### 15.2 CE-B Verifiering
+```
+show ip interface brief
+show ip bgp summary
+show ip bgp
+```
+
+**Förväntat resultat:**
+- Gi0/0 och Gi0/1: up/up
+- BGP neighbor 192.168.102.2: Established, PfxRcd = 3
+- BGP table: 10.0.0.0/24, 10.10.0.0/24, 10.20.1.0/24, 10.20.2.0/24 (lokalt)
+
+---
+
+## 16. L2 Switchar Konfiguration
+
+### 16.1 MGMT-SW (Cisco IOSvL2)
+```
+!========================================
+! MGMT-SW - Cisco IOSvL2
+! Management Network Switch
+!========================================
+
+enable
+configure terminal
+
+hostname MGMT-SW
+
+! Alla portar i VLAN 1 som default
+! Koppla servrar till lediga portar
+interface range GigabitEthernet0/0 - 3
+ description Management Network
+ switchport mode access
+ switchport access vlan 1
+ no shutdown
+
+end
+write memory
+```
+
+### 16.2 SERVICES-SW (Cisco IOSvL2)
+```
+!========================================
+! SERVICES-SW - Cisco IOSvL2
+! Services Network Switch
+!========================================
+
+enable
+configure terminal
+
+hostname SERVICES-SW
+
+! Alla portar i VLAN 1 som default
+! Koppla servrar till lediga portar
+interface range GigabitEthernet0/0 - 3
+ description Services Network
+ switchport mode access
+ switchport access vlan 1
+ no shutdown
+
+end
+write memory
+```
+
+### 16.3 NAT-SW (Cisco IOSvL2)
+```
+!========================================
+! NAT-SW - Cisco IOSvL2
+! NAT Cloud Access Switch
+!========================================
+
+enable
+configure terminal
+
+hostname NAT-SW
+
+! Gi0/0 till NAT Cloud
+! Övriga portar för servrar som behöver internet
+interface range GigabitEthernet0/0 - 3
+ description NAT Network
+ switchport mode access
+ switchport access vlan 1
+ no shutdown
+
+end
+write memory
+```
+
+### 16.4 LAN-SW-A och LAN-SW-B
+
+Dessa är **GNS3 Ethernet Switches** (inte Cisco IOSvL2), så de kräver ingen konfiguration. De fungerar som enkla L2-switchar out-of-the-box.
+
+---
+
+## 17. Fas 2 Slutlig Verifiering
+
+### 17.1 Checklista
+
+| Check | Kommando | Förväntat |
+|-------|----------|-----------|
+| CE-DC ↔ PE1 eBGP | `show ip bgp summary` på CE-DC | Estab, 2 prefixes |
+| CE-DC ↔ PE2 eBGP | `show ip bgp summary` på CE-DC | Estab, 2 prefixes |
+| CE-A ↔ PE-A eBGP | `show ip bgp summary` på CE-A | Estab, PfxRcd=3 |
+| CE-B ↔ PE-B eBGP | `show ip bgp summary` på CE-B | Estab, PfxRcd=3 |
+| VRF MGMT routing | `show ip route vrf MGMT` på CE-DC | 10.0.0.0/24 connected |
+| VRF SERVICES routing | `show ip route vrf SERVICES` på CE-DC | 10.10.0.0/24 connected |
+
+### 17.2 End-to-End Connectivity Test
+
+Från CE-A:
+```
+ping 10.10.0.1 source 10.20.1.1
+```
+
+Från CE-B:
+```
+ping 10.10.0.1 source 10.20.2.1
+```
+
+### 17.3 Viktiga lärdomar från Fas 2
+
+1. **Arista EOS syntax:** Prefix-lists och route-maps måste vara i `address-family ipv4` blocket
+2. **VRF routing:** Måste aktiveras explicit med `ip routing vrf <name>` på Arista
+3. **allowas-in:** Krävs när flera sites har samma AS-nummer och kommunicerar via provider (förhindrar false loop detection)
