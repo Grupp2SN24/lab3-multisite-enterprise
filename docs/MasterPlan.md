@@ -3216,3 +3216,243 @@ for i in {1..6}; do curl -s http://10.10.0.9 | grep "Server:"; done
 Öppna i webbläsare: `http://10.10.0.10:8404/stats`
 
 Alla tre webservrar ska visas som **UP** (gröna).
+
+## 33. terminal-1 - Komplett Setup (XRDP Terminalserver)
+
+### 33.1 Skapa VM i GNS3
+
+- Template: Debian 12.6
+- RAM: 1024 MB
+- Disk: 20 GB
+- NICs: 2 st (ens4 → SERVICES-SW Gi1/2, ens5 → NAT)
+
+### 33.2 Grundkonfiguration
+```bash
+hostnamectl set-hostname terminal-1
+timedatectl set-timezone Europe/Stockholm
+
+cat > /etc/hosts << 'EOF'
+127.0.0.1       localhost
+
+10.10.0.31      terminal-1.lab3.local terminal-1
+10.10.0.32      terminal-2.lab3.local terminal-2
+10.10.0.40      nfs-server.lab3.local nfs-server
+10.0.0.10       puppet-master-1.lab3.local puppet-master-1 puppet
+EOF
+
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+auto ens4
+iface ens4 inet static
+    address 10.10.0.31
+    netmask 255.255.255.0
+    up ip route add 10.0.0.0/24 via 10.10.0.1
+    up ip route add 10.20.1.0/24 via 10.10.0.1
+    up ip route add 10.20.2.0/24 via 10.10.0.1
+
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+systemctl restart networking
+```
+
+### 33.3 Installera XRDP och Xfce
+```bash
+apt update && apt upgrade -y
+apt install -y xrdp xfce4 xfce4-goodies nfs-common wget curl
+
+# Konfigurera XRDP att använda Xfce
+echo "xfce4-session" > /root/.xsession
+chmod +x /root/.xsession
+
+# Aktivera XRDP
+systemctl enable xrdp
+systemctl restart xrdp
+```
+
+### 33.4 Montera NFS för hemkataloger
+```bash
+mkdir -p /srv/nfs/home
+echo "10.10.0.40:/srv/nfs/home /srv/nfs/home nfs defaults 0 0" >> /etc/fstab
+mount -a
+```
+
+**OBS:** NFS-servern (10.10.0.40) måste vara konfigurerad först innan mount fungerar.
+
+### 33.5 Skapa användare med hemkataloger på NFS
+```bash
+# Skapa 20 användare med hemkataloger på NFS
+for i in $(seq -w 1 20); do
+    useradd -m -d /srv/nfs/home/user$i -s /bin/bash user$i
+    echo "user$i:password123" | chpasswd
+done
+```
+
+### 33.6 Installera och registrera Puppet Agent
+```bash
+wget https://apt.puppet.com/puppet8-release-bookworm.deb
+dpkg -i puppet8-release-bookworm.deb
+apt update
+apt install -y puppet-agent
+
+cat > /etc/puppetlabs/puppet/puppet.conf << 'EOF'
+[main]
+server = puppet-master-1.lab3.local
+certname = terminal-1.lab3.local
+EOF
+
+/opt/puppetlabs/bin/puppet agent --test --waitforcert 60
+```
+
+**På puppet-master-1 (signera certifikat):**
+```bash
+sudo /opt/puppetlabs/bin/puppetserver ca sign --certname terminal-1.lab3.local
+```
+
+### 33.7 Verifiera terminal-1
+```bash
+# Kolla XRDP-tjänst
+systemctl status xrdp --no-pager
+
+# Kolla att port 3389 lyssnar
+ss -tlnp | grep 3389
+
+# Kolla NFS-mount
+df -h | grep nfs
+```
+
+---
+
+## 34. terminal-2 - Komplett Setup (XRDP Terminalserver)
+
+### 34.1 Skapa VM i GNS3
+
+- Template: Debian 12.6
+- RAM: 1024 MB
+- Disk: 20 GB
+- NICs: 2 st (ens4 → SERVICES-SW Gi1/3, ens5 → NAT)
+
+### 34.2 Grundkonfiguration
+```bash
+hostnamectl set-hostname terminal-2
+timedatectl set-timezone Europe/Stockholm
+
+cat > /etc/hosts << 'EOF'
+127.0.0.1       localhost
+
+10.10.0.32      terminal-2.lab3.local terminal-2
+10.10.0.31      terminal-1.lab3.local terminal-1
+10.10.0.40      nfs-server.lab3.local nfs-server
+10.0.0.10       puppet-master-1.lab3.local puppet-master-1 puppet
+EOF
+
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+auto ens4
+iface ens4 inet static
+    address 10.10.0.32
+    netmask 255.255.255.0
+    up ip route add 10.0.0.0/24 via 10.10.0.1
+    up ip route add 10.20.1.0/24 via 10.10.0.1
+    up ip route add 10.20.2.0/24 via 10.10.0.1
+
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+systemctl restart networking
+```
+
+### 34.3 Installera XRDP och Xfce
+```bash
+apt update && apt upgrade -y
+apt install -y xrdp xfce4 xfce4-goodies nfs-common wget curl
+
+echo "xfce4-session" > /root/.xsession
+chmod +x /root/.xsession
+
+systemctl enable xrdp
+systemctl restart xrdp
+```
+
+### 34.4 Montera NFS (samma share som terminal-1)
+```bash
+# Montera samma NFS (användare finns redan)
+mkdir -p /srv/nfs/home
+echo "10.10.0.40:/srv/nfs/home /srv/nfs/home nfs defaults 0 0" >> /etc/fstab
+mount -a
+```
+
+**OBS:** Användarna skapades redan på terminal-1 med hemkataloger på NFS-servern. Dessa användare fungerar automatiskt på terminal-2 också.
+
+### 34.5 Installera och registrera Puppet Agent
+```bash
+wget https://apt.puppet.com/puppet8-release-bookworm.deb
+dpkg -i puppet8-release-bookworm.deb
+apt update
+apt install -y puppet-agent
+
+cat > /etc/puppetlabs/puppet/puppet.conf << 'EOF'
+[main]
+server = puppet-master-1.lab3.local
+certname = terminal-2.lab3.local
+EOF
+
+/opt/puppetlabs/bin/puppet agent --test --waitforcert 60
+```
+
+**På puppet-master-1 (signera certifikat):**
+```bash
+sudo /opt/puppetlabs/bin/puppetserver ca sign --certname terminal-2.lab3.local
+```
+
+### 34.6 Verifiera terminal-2
+```bash
+# Kolla XRDP-tjänst
+systemctl status xrdp --no-pager
+
+# Kolla att port 3389 lyssnar
+ss -tlnp | grep 3389
+
+# Kolla NFS-mount
+df -h | grep nfs
+```
+
+---
+
+## 35. Testa RDP-anslutning
+
+### 35.1 Från Linux-klient
+```bash
+# Installera xfreerdp om det saknas
+apt install -y freerdp2-x11
+
+# Anslut till terminal-1
+xfreerdp /v:10.10.0.31 /u:user01 /p:password123
+
+# Anslut till terminal-2
+xfreerdp /v:10.10.0.32 /u:user01 /p:password123
+```
+
+### 35.2 Från Windows-klient
+```cmd
+mstsc /v:10.10.0.31
+```
+
+Logga in med:
+- **Användare:** `user01`
+- **Lösenord:** `password123`
+
+### 35.3 Verifiera NFS-delade hemkataloger
+
+1. Logga in på terminal-1 som `user01`
+2. Skapa en fil: `touch ~/testfile.txt`
+3. Logga in på terminal-2 som `user01`
+4. Verifiera att filen finns: `ls ~/testfile.txt`
+
+Om filen syns på båda servrarna fungerar NFS-delningen korrekt.
