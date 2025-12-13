@@ -2922,3 +2922,297 @@ systemctl start keepalived
 
 # VIP ska flytta tillbaka till haproxy-1 (högre priority)
 ```
+## 29. web-1 - Komplett Setup
+
+### 29.1 Skapa VM i GNS3
+
+- Template: Debian 12.6
+- RAM: 512 MB
+- Disk: 20 GB
+- NICs: 2 st (ens4 → SERVICES-SW Gi0/3, ens5 → NAT)
+
+### 29.2 Grundkonfiguration
+```bash
+hostnamectl set-hostname web-1
+timedatectl set-timezone Europe/Stockholm
+
+cat > /etc/hosts << 'EOF'
+127.0.0.1       localhost
+
+10.10.0.21      web-1.lab3.local web-1
+10.10.0.9       vip.lab3.local vip
+10.10.0.10      haproxy-1.lab3.local haproxy-1
+10.10.0.11      haproxy-2.lab3.local haproxy-2
+10.0.0.10       puppet-master-1.lab3.local puppet-master-1 puppet
+EOF
+
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+auto ens4
+iface ens4 inet static
+    address 10.10.0.21
+    netmask 255.255.255.0
+    up ip route add 10.0.0.0/24 via 10.10.0.1
+    up ip route add 10.20.1.0/24 via 10.10.0.1
+    up ip route add 10.20.2.0/24 via 10.10.0.1
+
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+systemctl restart networking
+```
+
+### 29.3 Installera Apache
+```bash
+apt update && apt upgrade -y
+apt install -y apache2 wget curl
+
+# Skapa testsida som visar servernamn
+cat > /var/www/html/index.html << 'EOF'
+
+
+Lab3 - web-1
+
+Lab 3 Multi-Site Enterprise
+Server: web-1
+IP: 10.10.0.21
+
+
+EOF
+
+systemctl enable apache2
+systemctl restart apache2
+```
+
+### 29.4 Installera och registrera Puppet Agent
+```bash
+wget https://apt.puppet.com/puppet8-release-bookworm.deb
+dpkg -i puppet8-release-bookworm.deb
+apt update
+apt install -y puppet-agent
+
+cat > /etc/puppetlabs/puppet/puppet.conf << 'EOF'
+[main]
+server = puppet-master-1.lab3.local
+certname = web-1.lab3.local
+EOF
+
+/opt/puppetlabs/bin/puppet agent --test --waitforcert 60
+```
+
+**På puppet-master-1 (signera certifikat):**
+```bash
+sudo /opt/puppetlabs/bin/puppetserver ca sign --certname web-1.lab3.local
+```
+
+### 29.5 Verifiera web-1
+```bash
+# Testa lokalt
+curl http://localhost
+
+# Kolla tjänst
+systemctl status apache2 --no-pager
+```
+
+---
+
+## 30. web-2 - Komplett Setup
+
+### 30.1 Skapa VM i GNS3
+
+- Template: Debian 12.6
+- RAM: 512 MB
+- Disk: 20 GB
+- NICs: 2 st (ens4 → SERVICES-SW Gi1/0, ens5 → NAT)
+
+### 30.2 Grundkonfiguration
+```bash
+hostnamectl set-hostname web-2
+timedatectl set-timezone Europe/Stockholm
+
+cat > /etc/hosts << 'EOF'
+127.0.0.1       localhost
+
+10.10.0.22      web-2.lab3.local web-2
+10.10.0.9       vip.lab3.local vip
+10.10.0.10      haproxy-1.lab3.local haproxy-1
+10.10.0.11      haproxy-2.lab3.local haproxy-2
+10.0.0.10       puppet-master-1.lab3.local puppet-master-1 puppet
+EOF
+
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+auto ens4
+iface ens4 inet static
+    address 10.10.0.22
+    netmask 255.255.255.0
+    up ip route add 10.0.0.0/24 via 10.10.0.1
+    up ip route add 10.20.1.0/24 via 10.10.0.1
+    up ip route add 10.20.2.0/24 via 10.10.0.1
+
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+systemctl restart networking
+```
+
+### 30.3 Installera Apache
+```bash
+apt update && apt upgrade -y
+apt install -y apache2 wget curl
+
+cat > /var/www/html/index.html << 'EOF'
+
+
+Lab3 - web-2
+
+Lab 3 Multi-Site Enterprise
+Server: web-2
+IP: 10.10.0.22
+
+
+EOF
+
+systemctl enable apache2
+systemctl restart apache2
+```
+
+### 30.4 Installera och registrera Puppet Agent
+```bash
+wget https://apt.puppet.com/puppet8-release-bookworm.deb
+dpkg -i puppet8-release-bookworm.deb
+apt update
+apt install -y puppet-agent
+
+cat > /etc/puppetlabs/puppet/puppet.conf << 'EOF'
+[main]
+server = puppet-master-1.lab3.local
+certname = web-2.lab3.local
+EOF
+
+/opt/puppetlabs/bin/puppet agent --test --waitforcert 60
+```
+
+**På puppet-master-1 (signera certifikat):**
+```bash
+sudo /opt/puppetlabs/bin/puppetserver ca sign --certname web-2.lab3.local
+```
+
+---
+
+## 31. web-3 - Komplett Setup
+
+### 31.1 Skapa VM i GNS3
+
+- Template: Debian 12.6
+- RAM: 512 MB
+- Disk: 20 GB
+- NICs: 2 st (ens4 → SERVICES-SW Gi1/1, ens5 → NAT)
+
+### 31.2 Grundkonfiguration
+```bash
+hostnamectl set-hostname web-3
+timedatectl set-timezone Europe/Stockholm
+
+cat > /etc/hosts << 'EOF'
+127.0.0.1       localhost
+
+10.10.0.23      web-3.lab3.local web-3
+10.10.0.9       vip.lab3.local vip
+10.10.0.10      haproxy-1.lab3.local haproxy-1
+10.10.0.11      haproxy-2.lab3.local haproxy-2
+10.0.0.10       puppet-master-1.lab3.local puppet-master-1 puppet
+EOF
+
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+auto ens4
+iface ens4 inet static
+    address 10.10.0.23
+    netmask 255.255.255.0
+    up ip route add 10.0.0.0/24 via 10.10.0.1
+    up ip route add 10.20.1.0/24 via 10.10.0.1
+    up ip route add 10.20.2.0/24 via 10.10.0.1
+
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+systemctl restart networking
+```
+
+### 31.3 Installera Apache
+```bash
+apt update && apt upgrade -y
+apt install -y apache2 wget curl
+
+cat > /var/www/html/index.html << 'EOF'
+
+
+Lab3 - web-3
+
+Lab 3 Multi-Site Enterprise
+Server: web-3
+IP: 10.10.0.23
+
+
+EOF
+
+systemctl enable apache2
+systemctl restart apache2
+```
+
+### 31.4 Installera och registrera Puppet Agent
+```bash
+wget https://apt.puppet.com/puppet8-release-bookworm.deb
+dpkg -i puppet8-release-bookworm.deb
+apt update
+apt install -y puppet-agent
+
+cat > /etc/puppetlabs/puppet/puppet.conf << 'EOF'
+[main]
+server = puppet-master-1.lab3.local
+certname = web-3.lab3.local
+EOF
+
+/opt/puppetlabs/bin/puppet agent --test --waitforcert 60
+```
+
+**På puppet-master-1 (signera certifikat):**
+```bash
+sudo /opt/puppetlabs/bin/puppetserver ca sign --certname web-3.lab3.local
+```
+
+---
+
+## 32. Verifiera Load Balancing
+
+### 32.1 Testa från haproxy-1
+```bash
+# Testa VIP - kör flera gånger och se att servern varierar
+for i in {1..6}; do curl -s http://10.10.0.9 | grep "Server:"; done
+```
+
+**Förväntat resultat:**
+```
+<h2>Server: web-1</h2>
+<h2>Server: web-2</h2>
+<h2>Server: web-3</h2>
+<h2>Server: web-1</h2>
+<h2>Server: web-2</h2>
+<h2>Server: web-3</h2>
+```
+
+### 32.2 HAProxy Stats
+
+Öppna i webbläsare: `http://10.10.0.10:8404/stats`
+
+Alla tre webservrar ska visas som **UP** (gröna).
