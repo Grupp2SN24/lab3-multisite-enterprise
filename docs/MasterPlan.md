@@ -2643,3 +2643,282 @@ ping -c 2 10.0.0.10      # puppet-master-1 (via VRF leak)
 ping -c 2 8.8.8.8        # Internet
 ```
 
+### 27.5 Steg 4: Installera paket
+```bash
+apt update && apt upgrade -y
+apt install -y haproxy keepalived wget curl gnupg2
+```
+
+### 27.6 Steg 5: Konfigurera HAProxy
+```bash
+cat > /etc/haproxy/haproxy.cfg << 'EOF'
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+
+defaults
+    log     global
+    mode    http
+    option  httplog
+    option  dontlognull
+    timeout connect 5000
+    timeout client  50000
+    timeout server  50000
+
+frontend web_frontend
+    bind *:80
+    default_backend web_backend
+
+backend web_backend
+    balance roundrobin
+    option httpchk GET /
+    server web-1 10.10.0.21:80 check
+    server web-2 10.10.0.22:80 check
+    server web-3 10.10.0.23:80 check
+
+listen stats
+    bind *:8404
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+    stats admin if LOCALHOST
+EOF
+
+systemctl enable haproxy
+systemctl restart haproxy
+```
+
+### 27.7 Steg 6: Konfigurera Keepalived (VRRP Master)
+```bash
+cat > /etc/keepalived/keepalived.conf << 'EOF'
+vrrp_instance VI_1 {
+    state MASTER
+    interface ens4
+    virtual_router_id 51
+    priority 100
+    advert_int 1
+    
+    authentication {
+        auth_type PASS
+        auth_pass lab3secret
+    }
+    
+    virtual_ipaddress {
+        10.10.0.9/24
+    }
+}
+EOF
+
+systemctl enable keepalived
+systemctl start keepalived
+
+# Verifiera att VIP finns
+ip addr show ens4 | grep 10.10.0.9
+```
+
+### 27.8 Steg 7: Installera och registrera Puppet Agent
+```bash
+# Lägg till Puppet repository
+wget https://apt.puppet.com/puppet8-release-bookworm.deb
+dpkg -i puppet8-release-bookworm.deb
+apt update
+apt install -y puppet-agent
+
+# Konfigurera Puppet
+cat > /etc/puppetlabs/puppet/puppet.conf << 'EOF'
+[main]
+server = puppet-master-1.lab3.local
+certname = haproxy-1.lab3.local
+EOF
+
+# Registrera med Puppet (väntar på cert-signering)
+/opt/puppetlabs/bin/puppet agent --test --waitforcert 60
+```
+
+**På puppet-master-1 (signera certifikat):**
+```bash
+sudo /opt/puppetlabs/bin/puppetserver ca list
+sudo /opt/puppetlabs/bin/puppetserver ca sign --certname haproxy-1.lab3.local
+```
+
+---
+
+## 28. haproxy-2 - Komplett Setup (VRRP Backup)
+
+### 28.1 Skapa VM i GNS3
+
+- Template: Debian 12.6
+- RAM: 512 MB
+- Disk: 20 GB
+- NICs: 2 st (ens4 → SERVICES-SW Gi0/2, ens5 → NAT)
+
+### 28.2 Steg 1-3: Grundkonfiguration
+```bash
+hostnamectl set-hostname haproxy-2
+timedatectl set-timezone Europe/Stockholm
+
+cat > /etc/hosts << 'EOF'
+127.0.0.1       localhost
+
+10.10.0.11      haproxy-2.lab3.local haproxy-2
+10.10.0.10      haproxy-1.lab3.local haproxy-1
+10.10.0.9       vip.lab3.local vip
+10.10.0.21      web-1.lab3.local web-1
+10.10.0.22      web-2.lab3.local web-2
+10.10.0.23      web-3.lab3.local web-3
+10.10.0.31      terminal-1.lab3.local terminal-1
+10.10.0.32      terminal-2.lab3.local terminal-2
+10.10.0.40      nfs-server.lab3.local nfs-server
+10.10.0.50      ssh-bastion.lab3.local ssh-bastion
+10.0.0.10       puppet-master-1.lab3.local puppet-master-1 puppet
+EOF
+
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+auto ens4
+iface ens4 inet static
+    address 10.10.0.11
+    netmask 255.255.255.0
+    up ip route add 10.0.0.0/24 via 10.10.0.1
+    up ip route add 10.20.1.0/24 via 10.10.0.1
+    up ip route add 10.20.2.0/24 via 10.10.0.1
+
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+systemctl restart networking
+```
+
+### 28.3 Steg 4-5: Installera paket och HAProxy
+```bash
+apt update && apt upgrade -y
+apt install -y haproxy keepalived wget curl gnupg2
+
+# Samma HAProxy-config som haproxy-1
+cat > /etc/haproxy/haproxy.cfg << 'EOF'
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+
+defaults
+    log     global
+    mode    http
+    option  httplog
+    option  dontlognull
+    timeout connect 5000
+    timeout client  50000
+    timeout server  50000
+
+frontend web_frontend
+    bind *:80
+    default_backend web_backend
+
+backend web_backend
+    balance roundrobin
+    option httpchk GET /
+    server web-1 10.10.0.21:80 check
+    server web-2 10.10.0.22:80 check
+    server web-3 10.10.0.23:80 check
+
+listen stats
+    bind *:8404
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+    stats admin if LOCALHOST
+EOF
+
+systemctl enable haproxy
+systemctl restart haproxy
+```
+
+### 28.4 Steg 6: Konfigurera Keepalived (VRRP Backup)
+```bash
+# Keepalived - BACKUP (priority 90, inte 100!)
+cat > /etc/keepalived/keepalived.conf << 'EOF'
+vrrp_instance VI_1 {
+    state BACKUP
+    interface ens4
+    virtual_router_id 51
+    priority 90
+    advert_int 1
+    
+    authentication {
+        auth_type PASS
+        auth_pass lab3secret
+    }
+    
+    virtual_ipaddress {
+        10.10.0.9/24
+    }
+}
+EOF
+
+systemctl enable keepalived
+systemctl start keepalived
+```
+
+### 28.5 Steg 7: Installera och registrera Puppet Agent
+```bash
+wget https://apt.puppet.com/puppet8-release-bookworm.deb
+dpkg -i puppet8-release-bookworm.deb
+apt update
+apt install -y puppet-agent
+
+cat > /etc/puppetlabs/puppet/puppet.conf << 'EOF'
+[main]
+server = puppet-master-1.lab3.local
+certname = haproxy-2.lab3.local
+EOF
+
+/opt/puppetlabs/bin/puppet agent --test --waitforcert 60
+```
+
+**På puppet-master-1 (signera certifikat):**
+```bash
+sudo /opt/puppetlabs/bin/puppetserver ca sign --certname haproxy-2.lab3.local
+```
+
+### 28.6 Verifiera haproxy-2
+```bash
+# Kolla att VIP INTE finns på haproxy-2 (den ska vara på haproxy-1)
+ip addr show ens4 | grep 10.10.0.9
+
+# Kolla tjänster
+systemctl status haproxy --no-pager
+systemctl status keepalived --no-pager
+
+# Testa connectivity
+ping -c 2 10.10.0.10    # haproxy-1
+ping -c 2 10.0.0.10     # puppet-master-1
+```
+
+### 28.7 VRRP Failover-test
+```bash
+# På haproxy-1: Stoppa keepalived
+systemctl stop keepalived
+
+# På haproxy-2: Verifiera att VIP flyttade hit
+ip addr show ens4 | grep 10.10.0.9
+# Bör nu visa 10.10.0.9
+
+# På haproxy-1: Starta keepalived igen
+systemctl start keepalived
+
+# VIP ska flytta tillbaka till haproxy-1 (högre priority)
+```
