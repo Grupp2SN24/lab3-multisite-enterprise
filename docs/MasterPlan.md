@@ -2402,3 +2402,244 @@ Sedan öppna: `https://puppet-master-1.lab3.local`
 - **Användare:** `admin`
 - **Lösenord:** `Labpass123!`
 
+
+## 24. Fas 4: DC Services
+
+### 24.1 Översikt
+
+Denna fas installerar alla tjänster i SERVICES VRF (10.10.0.0/24):
+
+| Server | IP | RAM | Roll |
+|--------|-----|-----|------|
+| haproxy-1 | 10.10.0.10 | 512 MB | Load Balancer (VRRP Master) |
+| haproxy-2 | 10.10.0.11 | 512 MB | Load Balancer (VRRP Backup) |
+| VIP | 10.10.0.9 | - | Virtual IP |
+| web-1 | 10.10.0.21 | 512 MB | Apache |
+| web-2 | 10.10.0.22 | 512 MB | Apache |
+| web-3 | 10.10.0.23 | 512 MB | Apache |
+| terminal-1 | 10.10.0.31 | 1024 MB | XRDP |
+| terminal-2 | 10.10.0.32 | 1024 MB | XRDP |
+| nfs-server | 10.10.0.40 | 512 MB | Delad lagring |
+| ssh-bastion | 10.10.0.50 | 512 MB | MFA SSH |
+| Gateway | 10.10.0.1 | - | CE-DC |
+
+---
+
+## 25. Inter-VRF Routing Fix - CE-DC (Arista vEOS-lab 4.29.2F)
+
+### 25.1 Problem
+
+Servrar i SERVICES VRF (10.10.0.0/24) kunde inte kommunicera med servrar i MGMT VRF (10.0.0.0/24) på samma router.
+
+### 25.2 Lösning
+
+#### Steg 1: Aktivera multi-agent routing model
+```
+configure terminal
+service routing protocols model multi-agent
+end
+write memory
+reload
+```
+
+**OBS:** Kräver reboot för att aktiveras.
+
+#### Steg 2: Skapa route-map för leak policy
+```
+configure terminal
+route-map RM-LEAK-ALL permit 10
+```
+
+#### Steg 3: Konfigurera VRF route leaking med router general
+```
+router general
+   vrf MGMT
+      leak routes source-vrf SERVICES subscribe-policy RM-LEAK-ALL
+   !
+   vrf SERVICES
+      leak routes source-vrf MGMT subscribe-policy RM-LEAK-ALL
+
+end
+write memory
+```
+
+#### Steg 4: Verifiera på CE-DC
+```
+show ip route vrf SERVICES
+show ip route vrf MGMT
+```
+
+**Förväntat resultat - "L" (Leaked) routes:**
+
+VRF: SERVICES
+```
+C L   10.0.0.0/24 is directly connected (source VRF MGMT), Ethernet1 (egress VRF MGMT)
+C     10.10.0.0/24 is directly connected, Ethernet2
+```
+
+VRF: MGMT
+```
+C     10.0.0.0/24 is directly connected, Ethernet1
+C L   10.10.0.0/24 is directly connected (source VRF SERVICES), Ethernet2 (egress VRF SERVICES)
+```
+
+---
+
+## 26. Klientkonfiguration - Returvägar
+
+Servrar i varje VRF behöver statiska routes till det andra subnätet.
+
+### 26.1 puppet-master-1 (10.0.0.10 i MGMT VRF)
+
+Uppdatera `/etc/network/interfaces`:
+```bash
+cat > /etc/network/interfaces << 'EOF'
+# Loopback
+auto lo
+iface lo inet loopback
+
+# MGMT Network (statisk IP, INGEN default gateway här!)
+auto ens4
+iface ens4 inet static
+    address 10.0.0.10
+    netmask 255.255.255.0
+    up ip route add 10.10.0.0/24 via 10.0.0.1
+
+# NAT Network (DHCP - denna ger oss internet-access)
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+systemctl restart networking
+```
+
+### 26.2 puppet-master-2 (10.0.0.11 i MGMT VRF)
+```bash
+cat > /etc/network/interfaces << 'EOF'
+# Loopback
+auto lo
+iface lo inet loopback
+
+# MGMT Network
+auto ens4
+iface ens4 inet static
+    address 10.0.0.11
+    netmask 255.255.255.0
+    up ip route add 10.10.0.0/24 via 10.0.0.1
+
+# NAT Network (DHCP)
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+systemctl restart networking
+```
+
+### 26.3 puppetdb (10.0.0.12 i MGMT VRF)
+```bash
+cat > /etc/network/interfaces << 'EOF'
+# Loopback
+auto lo
+iface lo inet loopback
+
+# MGMT Network
+auto ens4
+iface ens4 inet static
+    address 10.0.0.12
+    netmask 255.255.255.0
+    up ip route add 10.10.0.0/24 via 10.0.0.1
+
+# NAT Network (DHCP)
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+systemctl restart networking
+```
+
+---
+
+## 27. haproxy-1 - Komplett Setup
+
+### 27.1 Skapa VM i GNS3
+
+- Template: Debian 12.6
+- RAM: 512 MB
+- Disk: 20 GB
+- NICs: 2 st (ens4 → SERVICES-SW Gi0/1, ens5 → NAT)
+
+### 27.2 Grundkonfiguration
+```bash
+# Sätt hostname
+hostnamectl set-hostname haproxy-1
+
+# Sätt tidszon
+timedatectl set-timezone Europe/Stockholm
+
+# Konfigurera hosts-fil
+cat > /etc/hosts << 'EOF'
+127.0.0.1       localhost
+
+# Denna server
+10.10.0.10      haproxy-1.lab3.local haproxy-1
+
+# MGMT Network
+10.0.0.1        ce-dc-mgmt
+10.0.0.10       puppet-master-1.lab3.local puppet-master-1 puppet
+10.0.0.11       puppet-master-2.lab3.local puppet-master-2
+10.0.0.12       puppetdb.lab3.local puppetdb
+
+# SERVICES Network
+10.10.0.1       ce-dc-services
+10.10.0.9       vip.lab3.local vip
+10.10.0.11      haproxy-2.lab3.local haproxy-2
+10.10.0.21      web-1.lab3.local web-1
+10.10.0.22      web-2.lab3.local web-2
+10.10.0.23      web-3.lab3.local web-3
+10.10.0.31      terminal-1.lab3.local terminal-1
+10.10.0.32      terminal-2.lab3.local terminal-2
+10.10.0.40      nfs-server.lab3.local nfs-server
+10.10.0.50      ssh-bastion.lab3.local ssh-bastion
+EOF
+```
+
+### 27.3 Nätverkskonfiguration
+```bash
+cat > /etc/network/interfaces << 'EOF'
+# Loopback
+auto lo
+iface lo inet loopback
+
+# SERVICES Network
+auto ens4
+iface ens4 inet static
+    address 10.10.0.10
+    netmask 255.255.255.0
+    # Routes till andra VRFs via CE-DC
+    up ip route add 10.0.0.0/24 via 10.10.0.1
+    up ip route add 10.20.1.0/24 via 10.10.0.1
+    up ip route add 10.20.2.0/24 via 10.10.0.1
+
+# NAT Network (DHCP - internet-access)
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+systemctl restart networking
+```
+
+### 27.4 Verifiera nätverkskonfiguration
+```bash
+# Kolla IP-adresser
+ip addr show ens4
+ip addr show ens5
+
+# Kolla routes
+ip route
+
+# Testa konnektivitet
+ping -c 2 10.10.0.1      # Gateway
+ping -c 2 10.0.0.10      # puppet-master-1 (via VRF leak)
+ping -c 2 8.8.8.8        # Internet
+```
+
