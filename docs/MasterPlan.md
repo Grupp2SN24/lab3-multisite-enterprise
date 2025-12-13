@@ -2239,4 +2239,166 @@ systemctl start puppetdb
 systemctl status puppetdb
 ss -tlnp | grep -E '8080|8081'
 ```
+## 21. Del 3: Konfigurera puppet-master-1 att använda PuppetDB
+
+Tillbaka på puppet-master-1:
+```bash
+# Installera puppetdb-termini
+apt install -y puppetdb-termini
+
+# Konfigurera PuppetDB-anslutning
+cat > /etc/puppetlabs/puppet/puppetdb.conf << 'EOF'
+[main]
+server_urls = https://puppetdb.lab3.local:8081
+EOF
+
+# Lägg till route_file och storeconfigs
+cat >> /etc/puppetlabs/puppet/puppet.conf << 'EOF'
+
+[server]
+storeconfigs = true
+storeconfigs_backend = puppetdb
+reports = store,puppetdb
+
+[main]
+EOF
+
+# Skapa routes.yaml
+cat > /etc/puppetlabs/puppet/routes.yaml << 'EOF'
+---
+server:
+  facts:
+    terminus: puppetdb
+    cache: yaml
+EOF
+
+chown puppet:puppet /etc/puppetlabs/puppet/routes.yaml
+
+# Starta om Puppet Server
+systemctl restart puppetserver
+```
+
+---
+
+## 22. Del 4: puppet-master-2
+
+### 22.1 Steg 1: Skapa VM och grundkonfig (samma som puppet-master-1)
+```bash
+hostnamectl set-hostname puppet-master-2
+timedatectl set-timezone Europe/Stockholm
+
+cat > /etc/hosts << 'EOF'
+127.0.0.1       localhost
+
+10.0.0.10       puppet-master-1.lab3.local puppet-master-1 puppet
+10.0.0.11       puppet-master-2.lab3.local puppet-master-2
+10.0.0.12       puppetdb.lab3.local puppetdb
+10.0.0.1        ce-dc-mgmt
+EOF
+
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+auto ens4
+iface ens4 inet static
+    address 10.0.0.11
+    netmask 255.255.255.0
+
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+systemctl restart networking
+```
+
+### 22.2 Steg 2: Installera Puppet Server (utan CA)
+```bash
+apt update && apt upgrade -y
+apt install -y wget curl gnupg2
+
+wget https://apt.puppet.com/puppet8-release-bookworm.deb
+dpkg -i puppet8-release-bookworm.deb
+apt update
+
+apt install -y puppetserver puppet-agent puppetdb-termini
+
+# Konfigurera som icke-CA server
+cat > /etc/puppetlabs/puppet/puppet.conf << 'EOF'
+[main]
+server = puppet-master-1.lab3.local
+certname = puppet-master-2.lab3.local
+ca_server = puppet-master-1.lab3.local
+
+[server]
+ca = false
+storeconfigs = true
+storeconfigs_backend = puppetdb
+reports = store,puppetdb
+EOF
+
+# PuppetDB-konfig
+cat > /etc/puppetlabs/puppet/puppetdb.conf << 'EOF'
+[main]
+server_urls = https://puppetdb.lab3.local:8081
+EOF
+
+cat > /etc/puppetlabs/puppet/routes.yaml << 'EOF'
+---
+server:
+  facts:
+    terminus: puppetdb
+    cache: yaml
+EOF
+
+# Justera minne
+sed -i 's/Xms2g/Xms1g/g' /etc/default/puppetserver
+sed -i 's/Xmx2g/Xmx1g/g' /etc/default/puppetserver
+
+# Hämta certifikat från CA (puppet-master-1)
+/opt/puppetlabs/bin/puppet agent --test --waitforcert 60
+
+# Starta Puppet Server
+systemctl enable puppetserver
+systemctl start puppetserver
+```
+
+---
+
+## 23. Fas 3 Verifiering
+
+### 23.1 På puppet-master-1
+```bash
+# Kolla alla tjänster
+systemctl status puppetserver apache2 postgresql
+
+# Kolla portar
+ss -tlnp | grep -E '443|8140|8443'
+
+# Testa PuppetDB-anslutning
+curl -s --cacert /etc/puppetlabs/puppet/ssl/certs/ca.pem \
+  --cert /etc/puppetlabs/puppet/ssl/certs/puppet-master-1.lab3.local.pem \
+  --key /etc/puppetlabs/puppet/ssl/private_keys/puppet-master-1.lab3.local.pem \
+  https://puppetdb.lab3.local:8081/pdb/meta/v1/version
+
+# Lista signerade certifikat
+/opt/puppetlabs/bin/puppetserver ca list --all
+```
+
+### 23.2 Åtkomst till Foreman Web UI
+
+På din dator, lägg till i `/etc/hosts`:
+```
+<NAT-IP-från-ens5>  puppet-master-1.lab3.local
+```
+
+Hitta NAT-IP:n på puppet-master-1:
+```bash
+ip addr show ens5 | grep inet
+```
+
+Sedan öppna: `https://puppet-master-1.lab3.local`
+
+- **Användare:** `admin`
+- **Lösenord:** `Labpass123!`
 
