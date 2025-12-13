@@ -1936,7 +1936,7 @@ ip addr show ens5
 ping -c 2 8.8.8.8
 ```
 
-**Om du gjorde större disk på Debian (valfritt):**
+**Om du gjorde större disk på Debian (som jag visade på discord):**
 ```bash
 apt install -y cloud-guest-utils
 growpart /dev/sda 1
