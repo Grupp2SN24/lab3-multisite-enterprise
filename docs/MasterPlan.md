@@ -3424,3 +3424,91 @@ df -h | grep nfs
 ```
 
 ---
+## 33. ssh-bastion - Komplett Setup
+
+### 33.1 Skapa VM i GNS3
+
+- Template: Debian 12.6
+- RAM: 512 MB
+- Disk: 20 GB
+- NICs: 2 st (ens4 → SERVICES-SW Gi2/1, ens5 → NAT)
+
+### 33.2 Grundkonfiguration
+```bash
+hostnamectl set-hostname ssh-bastion
+timedatectl set-timezone Europe/Stockholm
+
+cat > /etc/hosts << 'EOF'
+127.0.0.1       localhost
+
+10.10.0.50      ssh-bastion.lab3.local ssh-bastion
+10.0.0.10       puppet-master-1.lab3.local puppet-master-1 puppet
+EOF
+
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+auto ens4
+iface ens4 inet static
+    address 10.10.0.50
+    netmask 255.255.255.0
+    up ip route add 10.0.0.0/24 via 10.10.0.1
+    up ip route add 10.20.1.0/24 via 10.10.0.1
+    up ip route add 10.20.2.0/24 via 10.10.0.1
+
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+systemctl restart networking
+```
+
+### 33.3 Installera SSH med MFA
+```bash
+apt update && apt upgrade -y
+apt install -y openssh-server libpam-google-authenticator wget curl
+
+# Aktivera MFA i PAM
+echo "auth required pam_google_authenticator.so" >> /etc/pam.d/sshd
+
+# Konfigurera SSH för MFA
+sed -i 's/^#*KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config
+sed -i 's/^#*ChallengeResponseAuthentication.*/ChallengeResponseAuthentication yes/' /etc/ssh/sshd_config
+
+# Begränsa SSH-åtkomst till MGMT-subnät
+cat >> /etc/ssh/sshd_config << 'EOF'
+
+# Endast tillåt från MGMT-nät
+AllowUsers *@10.0.0.*
+EOF
+
+systemctl restart sshd
+```
+
+### 33.4 Skapa admin-användare
+```bash
+useradd -m -s /bin/bash admin
+echo "admin:SecurePass123!" | chpasswd
+```
+
+### 33.5 Installera och registrera Puppet Agent
+```bash
+wget https://apt.puppet.com/puppet8-release-bookworm.deb
+dpkg -i puppet8-release-bookworm.deb
+apt update
+apt install -y puppet-agent
+
+cat > /etc/puppetlabs/puppet/puppet.conf << 'EOF'
+[main]
+server = puppet-master-1.lab3.local
+certname = ssh-bastion.lab3.local
+EOF
+
+/opt/puppetlabs/bin/puppet agent --test --waitforcert 60
+```
+
+**På puppet-master-1 (signera certifikat):**
+```bash
+sudo /opt/puppetlabs/bin/puppetserver ca sign --certname ssh-bastion.lab3.local
+```
