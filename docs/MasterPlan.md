@@ -4168,3 +4168,30 @@ cat /etc/passwd | grep user
 | user20 | 1021 | /srv/nfs/home/user20 |
 
 **Totalt:** 20 användare (user01-user20) med lösenord `123`
+
+
+## 46. Terminal-2: Skapa 20 användare
+
+### 46.1 Skapa användare med matchande UID
+
+Logga in på terminal-2 (10.10.0.32) som root:
+```bash
+# Skapa alla 20 användare med samma UID som på terminal-1
+# (viktigt för NFS-kompatibilitet senare)
+for i in $(seq -w 1 20); do
+    useradd -m -u $((1001 + $i)) "user$i" 2>/dev/null
+    echo "user$i:123" | chpasswd
+done
+echo "Klart! 20 användare skapade (user01-user20)"
+```
+
+**Output:** `Klart! 20 användare skapade (user01-user20)`
+
+### 46.2 Verifiera antal användare
+```bash
+cat /etc/passwd | grep user | wc -l
+```
+
+**Förväntat resultat:** `20`
+
+**OBS:** UID:s matchar terminal-1 för NFS-kompatibilitet (user01=1002, user02=1003, osv).
