@@ -3512,3 +3512,373 @@ EOF
 ```bash
 sudo /opt/puppetlabs/bin/puppetserver ca sign --certname ssh-bastion.lab3.local
 ```
+# PXE-Server-A - Komplett Installationsguide
+
+## Grupp 2 SN24 - Lab 3 Multi-Site Enterprise Network
+
+---
+
+## Översikt
+
+PXE-Server-A tillhandahåller automatisk nätverksinstallation av Debian för thin-clients i Branch A.
+
+**Komponenter:**
+- DHCP (isc-dhcp-server) → Tilldelar IP + PXE-info
+- TFTP (tftpd-hpa) → Skickar bootfiler
+- Apache → Serverar preseed-fil
+- NAT Gateway → Ger internet till thin-client under installation
+
+**Flöde:**
+```
+PXE-Server-A (10.20.1.10)
+├── DHCP → Tilldelar IP + PXE-info
+├── TFTP → Skickar pxelinux.0, linux, initrd.gz
+├── Apache → Serverar preseed/thin-client.cfg
+└── NAT Gateway → Internet via ens5
+         ↓
+Thin-Client-A (10.20.1.20)
+└── Bootar via nätverk → Installerar Debian automatiskt
+```
+
+---
+
+## Steg 1: Skapa VM i GNS3
+
+| Parameter | Värde |
+|-----------|-------|
+| Namn | PXE-Server-A |
+| Template | Debian 12.6 |
+| RAM | 1024 MB |
+| vCPU | 1 |
+| NIC 1 (ens4) | Kopplad till **LAN-SW-A** |
+| NIC 2 (ens5) | Kopplad till **NAT** |
+
+---
+
+## Steg 2: Grundkonfiguration
+
+Starta VM och logga in som root:
+
+```bash
+# Aktivera internet först via NAT-interface
+dhclient ens5
+
+# Verifiera internet
+ping -c 2 8.8.8.8
+
+# Sätt hostname
+hostnamectl set-hostname pxe-server-a
+echo "pxe-server-a" > /etc/hostname
+```
+
+---
+
+## Steg 3: Konfigurera nätverk
+
+**VIKTIGT:** Ingen default gateway på ens4! Internet går via ens5 (NAT).
+
+```bash
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+# LAN mot LAN-SW-A (Branch A LAN) - INGEN default gateway här!
+auto ens4
+iface ens4 inet static
+    address 10.20.1.10
+    netmask 255.255.255.0
+    # Route till DC via CE-A (när CE-A är igång)
+    up ip route add 10.0.0.0/24 via 10.20.1.1 || true
+    up ip route add 10.10.0.0/24 via 10.20.1.1 || true
+
+# NAT för internet - default gateway här!
+auto ens5
+iface ens5 inet dhcp
+EOF
+```
+
+Applicera nätverkskonfiguration:
+
+```bash
+# Starta om nätverk eller applicera manuellt
+ip addr add 10.20.1.10/24 dev ens4 2>/dev/null || true
+ip link set ens4 up
+dhclient ens5
+
+# Verifiera
+ip addr show ens4
+ip addr show ens5
+ip route
+ping -c 2 8.8.8.8
+```
+
+---
+
+## Steg 4: Installera PXE-paket
+
+```bash
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y isc-dhcp-server tftpd-hpa apache2 \
+    pxelinux syslinux-common wget curl iptables iptables-persistent
+```
+
+---
+
+## Steg 5: Konfigurera NAT Gateway
+
+PXE-servern agerar NAT-gateway så thin-client får internet under installation:
+
+```bash
+# Aktivera IP forwarding
+echo 1 > /proc/sys/net/ipv4/ip_forward
+echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+
+# NAT masquerading
+iptables -t nat -A POSTROUTING -o ens5 -j MASQUERADE
+iptables -A FORWARD -i ens4 -o ens5 -j ACCEPT
+iptables -A FORWARD -i ens5 -o ens4 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# Spara iptables-regler
+netfilter-persistent save
+```
+
+---
+
+## Steg 6: Konfigurera DHCP
+
+```bash
+cat > /etc/dhcp/dhcpd.conf << 'EOF'
+option domain-name "branch-a.lab3.local";
+option domain-name-servers 8.8.8.8, 8.8.4.4;
+default-lease-time 600;
+max-lease-time 7200;
+authoritative;
+
+subnet 10.20.1.0 netmask 255.255.255.0 {
+  range 10.20.1.100 10.20.1.150;
+  option routers 10.20.1.10;          # PXE-server som gateway (NAT)
+  option broadcast-address 10.20.1.255;
+  next-server 10.20.1.10;             # TFTP server
+  filename "pxelinux.0";              # PXE bootloader
+}
+
+# Fast IP-reservation för thin-client
+host thin-client-a {
+  hardware ethernet 0c:20:01:00:00:20;
+  fixed-address 10.20.1.20;
+}
+EOF
+
+# Sätt DHCP att lyssna på ens4
+echo 'INTERFACESv4="ens4"' > /etc/default/isc-dhcp-server
+```
+
+---
+
+## Steg 7: Konfigurera TFTP
+
+```bash
+cat > /etc/default/tftpd-hpa << 'EOF'
+TFTP_USERNAME="tftp"
+TFTP_DIRECTORY="/var/lib/tftpboot"
+TFTP_ADDRESS=":69"
+TFTP_OPTIONS="--secure"
+EOF
+
+# Skapa katalogstruktur
+mkdir -p /var/lib/tftpboot/pxelinux.cfg
+mkdir -p /var/lib/tftpboot/debian
+
+# Kopiera bootfiler
+cp /usr/lib/PXELINUX/pxelinux.0 /var/lib/tftpboot/
+cp /usr/lib/syslinux/modules/bios/ldlinux.c32 /var/lib/tftpboot/
+cp /usr/lib/syslinux/modules/bios/libutil.c32 /var/lib/tftpboot/
+cp /usr/lib/syslinux/modules/bios/libcom32.c32 /var/lib/tftpboot/
+cp /usr/lib/syslinux/modules/bios/vesamenu.c32 /var/lib/tftpboot/
+```
+
+---
+
+## Steg 8: Skapa PXE Boot-meny
+
+```bash
+cat > /var/lib/tftpboot/pxelinux.cfg/default << 'EOF'
+DEFAULT vesamenu.c32
+PROMPT 0
+TIMEOUT 100
+ONTIMEOUT debian
+
+MENU TITLE PXE Boot Menu - Lab 3 Branch A
+
+LABEL debian
+  MENU LABEL Install Debian Thin Client (Automated)
+  KERNEL debian/linux
+  APPEND initrd=debian/initrd.gz auto=true priority=critical url=http://10.20.1.10/preseed/thin-client.cfg debian-installer/locale=sv_SE keyboard-configuration/xkb-keymap=se netcfg/get_hostname=thin-client-a netcfg/get_domain=branch-a.lab3.local
+
+LABEL local
+  MENU LABEL Boot from local disk
+  LOCALBOOT 0
+EOF
+```
+
+---
+
+## Steg 9: Ladda ner Debian netboot-filer
+
+```bash
+cd /var/lib/tftpboot/debian
+wget -q http://deb.debian.org/debian/dists/bookworm/main/installer-amd64/current/images/netboot/debian-installer/amd64/linux
+wget -q http://deb.debian.org/debian/dists/bookworm/main/installer-amd64/current/images/netboot/debian-installer/amd64/initrd.gz
+
+# Verifiera
+ls -la /var/lib/tftpboot/debian/
+```
+
+---
+
+## Steg 10: Skapa Preseed-fil
+
+**OBS:** Förenklad late_command - nätverkskonfiguration och Puppet görs manuellt efter installation.
+
+```bash
+mkdir -p /var/www/html/preseed
+
+cat > /var/www/html/preseed/thin-client.cfg << 'EOF'
+# Localization
+d-i debian-installer/locale string sv_SE.UTF-8
+d-i keyboard-configuration/xkb-keymap select se
+
+# Network
+d-i netcfg/choose_interface select auto
+d-i netcfg/get_hostname string thin-client-a
+d-i netcfg/get_domain string branch-a.lab3.local
+
+# Mirror
+d-i mirror/country string manual
+d-i mirror/http/hostname string deb.debian.org
+d-i mirror/http/directory string /debian
+d-i mirror/http/proxy string
+
+# Clock
+d-i clock-setup/utc boolean true
+d-i time/zone string Europe/Stockholm
+
+# Partitioning
+d-i partman-auto/method string regular
+d-i partman-auto/choose_recipe select atomic
+d-i partman/confirm_write_new_label boolean true
+d-i partman/choose_partition select finish
+d-i partman/confirm boolean true
+d-i partman/confirm_nooverwrite boolean true
+
+# Users
+d-i passwd/root-login boolean true
+d-i passwd/root-password password debian
+d-i passwd/root-password-again password debian
+d-i passwd/user-fullname string Thin Client User
+d-i passwd/username string thinclient
+d-i passwd/user-password password thinclient
+d-i passwd/user-password-again password thinclient
+d-i user-setup/allow-password-weak boolean true
+
+# Packages
+tasksel tasksel/first multiselect standard, ssh-server
+d-i pkgsel/include string sudo curl wget vim freerdp2-x11
+popularity-contest popularity-contest/participate boolean false
+
+# Bootloader
+d-i grub-installer/only_debian boolean true
+d-i grub-installer/bootdev string default
+
+# Post-install - simplified without heredoc
+d-i preseed/late_command string \
+  in-target bash -c 'echo "thinclient ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers'
+
+d-i finish-install/reboot_in_progress note
+EOF
+```
+
+---
+
+## Steg 11: Starta tjänster
+
+```bash
+systemctl enable isc-dhcp-server tftpd-hpa apache2
+systemctl restart tftpd-hpa
+systemctl restart apache2
+systemctl restart isc-dhcp-server
+```
+
+---
+
+## Steg 12: Verifiera installation
+
+```bash
+echo "=== Service Status ==="
+systemctl is-active isc-dhcp-server && echo "DHCP: OK" || echo "DHCP: FAILED"
+systemctl is-active tftpd-hpa && echo "TFTP: OK" || echo "TFTP: FAILED"
+systemctl is-active apache2 && echo "Apache: OK" || echo "Apache: FAILED"
+
+echo ""
+echo "=== Files ==="
+ls -la /var/lib/tftpboot/pxelinux.0
+ls -la /var/lib/tftpboot/debian/
+ls -la /var/www/html/preseed/thin-client.cfg
+
+echo ""
+echo "=== NAT Status ==="
+cat /proc/sys/net/ipv4/ip_forward
+iptables -t nat -L POSTROUTING -n | grep MASQ
+
+echo ""
+echo "=== Network ==="
+ip route | head -5
+ping -c 1 8.8.8.8 && echo "Internet: OK" || echo "Internet: FAILED"
+```
+
+---
+
+## Steg 13: (Valfritt) Installera Puppet agent
+
+```bash
+# Hosts-entry för puppet-master
+echo "10.0.0.10 puppet-master-1.lab3.local puppet-master-1 puppet" >> /etc/hosts
+
+# Installera Puppet
+cd /tmp
+wget -q https://apt.puppet.com/puppet8-release-bookworm.deb
+dpkg -i puppet8-release-bookworm.deb
+apt-get update
+apt-get install -y puppet-agent
+
+# Konfigurera
+cat > /etc/puppetlabs/puppet/puppet.conf << 'EOF'
+[main]
+server = puppet-master-1.lab3.local
+certname = pxe-server-a.lab3.local
+EOF
+
+# Registrera (kräver att CE-A är igång för routing till MGMT VRF)
+/opt/puppetlabs/bin/puppet agent --test --waitforcert 60
+```
+
+---
+
+## Thin-Client-A - GNS3 Konfiguration
+
+| Parameter | Värde |
+|-----------|-------|
+| Namn | Thin-Client-A |
+| Template | QEMU (tom, ingen disk-image) |
+| RAM | 1024 MB |
+| Disk | 8 GB |
+| vCPU | 1 |
+| NIC 1 | **LAN-SW-A** |
+| **MAC-adress** | **0c:20:01:00:00:20** |
+| **Boot order** | **Network first** |
+
+**Vid nätverksval under installation:** Välj **ens3** (den som är kopplad till LAN-SW-A).
+
+---
