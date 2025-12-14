@@ -4195,3 +4195,52 @@ cat /etc/passwd | grep user | wc -l
 **Förväntat resultat:** `20`
 
 **OBS:** UID:s matchar terminal-1 för NFS-kompatibilitet (user01=1002, user02=1003, osv).
+## 47. Fix Terminal-2 - NFS och användarkonfiguration
+
+### 47.1 Installera NFS-klient
+```bash
+apt install -y nfs-common
+```
+
+### 47.2 Skapa mount-punkt och montera
+```bash
+mkdir -p /srv/nfs/home
+mount -a
+```
+
+### 47.3 Verifiera NFS-mount
+```bash
+df -h | grep nfs
+```
+
+### 47.4 Ta bort gamla användare med fel hemkatalog
+```bash
+for i in $(seq -w 1 20); do
+    userdel -r "user$i" 2>/dev/null
+done
+```
+
+### 47.5 Skapa användare med korrekta NFS-hemkataloger
+```bash
+for i in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20; do
+    uid=$((1001 + ${i#0}))
+    useradd -u $uid -d /srv/nfs/home/user$i -s /bin/bash "user$i" 2>/dev/null
+    echo "user$i:123" | chpasswd
+done
+```
+
+### 47.6 Verifiera konfiguration
+```bash
+echo ""
+echo "=== VERIFIERING ==="
+df -h | grep nfs
+echo ""
+getent passwd user01
+echo ""
+grep user /etc/passwd | wc -l
+```
+
+**Förväntat resultat:**
+- NFS-mount visas från `10.10.0.40:/srv/nfs/home`
+- user01 har hemkatalog `/srv/nfs/home/user01`
+- Totalt 20 användare
