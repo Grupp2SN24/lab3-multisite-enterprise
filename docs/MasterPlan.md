@@ -4260,3 +4260,169 @@ su - user01 -c "cat ~/testfil.txt"
 **Förväntat resultat:** `Hej från terminal-1`
 
 Detta bekräftar att NFS-delningen fungerar korrekt och att användare har samma hemkatalog på båda terminalservrarna.
+
+
+## 49. Fas 6: Branch B - Windows PXE-installation
+
+### 49.1 Översikt
+
+| Windows-version | Beskrivning | RAM-krav |
+|-----------------|-------------|----------|
+| Windows 10 LTSC | Minst bloatware | ~1.5GB |
+| Windows 10 IoT Enterprise | För thin clients, minimal | ~1.5GB |
+
+### 49.2 Komponenter på PXE-Server-B (Debian)
+
+| Komponent | Funktion |
+|-----------|----------|
+| DHCP + TFTP | Samma som Branch A |
+| Samba | Windows läser installationsfiler via SMB |
+| WinPE | Liten Windows-boot-miljö som startar installationen |
+| autounattend.xml | Motsvarar preseed för Windows |
+
+---
+
+## 50. Steg 1: Skapa PXE-Server-B
+
+### 50.1 Skapa VM i GNS3
+
+| Parameter | Värde |
+|-----------|-------|
+| Template | Debian 12.6 |
+| RAM | 1024 MB |
+| Disk | 40 GB (Windows ISO tar plats) |
+| NIC 1 (ens4) | LAN-SW-B |
+| NIC 2 (ens5) | NAT |
+
+---
+
+## 51. Steg 2: Grundkonfiguration PXE-Server-B
+```bash
+# Aktivera internet
+dhclient ens5
+
+# Sätt hostname
+hostnamectl set-hostname pxe-server-b
+echo "pxe-server-b" > /etc/hostname
+
+# Nätverk
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+auto ens4
+iface ens4 inet static
+    address 10.20.2.10
+    netmask 255.255.255.0
+    up ip route add 10.0.0.0/24 via 10.20.2.1 || true
+    up ip route add 10.10.0.0/24 via 10.20.2.1 || true
+    up ip route add 10.20.1.0/24 via 10.20.2.1 || true
+
+auto ens5
+iface ens5 inet dhcp
+EOF
+
+# Applicera
+ip addr add 10.20.2.10/24 dev ens4 2>/dev/null || true
+ip link set ens4 up
+```
+
+---
+
+## 52. Steg 3: Installera paket
+```bash
+apt update
+apt install -y isc-dhcp-server tftpd-hpa samba \
+    pxelinux syslinux-common syslinux-efi \
+    wget curl wimtools cabextract iptables iptables-persistent
+```
+
+---
+
+## 53. Steg 4: NAT Gateway
+```bash
+echo 1 > /proc/sys/net/ipv4/ip_forward
+echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+
+iptables -t nat -A POSTROUTING -o ens5 -j MASQUERADE
+iptables -A FORWARD -i ens4 -o ens5 -j ACCEPT
+iptables -A FORWARD -i ens5 -o ens4 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+netfilter-persistent save
+```
+
+---
+
+## 54. Steg 5: DHCP för Windows PXE
+```bash
+cat > /etc/dhcp/dhcpd.conf << 'EOF'
+option domain-name "branch-b.lab3.local";
+option domain-name-servers 8.8.8.8, 8.8.4.4;
+default-lease-time 600;
+max-lease-time 7200;
+authoritative;
+
+# Detect UEFI vs BIOS
+option arch code 93 = unsigned integer 16;
+
+subnet 10.20.2.0 netmask 255.255.255.0 {
+    range 10.20.2.100 10.20.2.150;
+    option routers 10.20.2.10;
+    option broadcast-address 10.20.2.255;
+    next-server 10.20.2.10;
+    
+    # UEFI boot (de flesta moderna)
+    if option arch = 00:07 or option arch = 00:09 {
+        filename "efi/bootx64.efi";
+    } else {
+        filename "pxelinux.0";
+    }
+}
+
+host thin-client-b {
+    hardware ethernet 0c:20:02:00:00:20;
+    fixed-address 10.20.2.20;
+}
+EOF
+
+echo 'INTERFACESv4="ens4"' > /etc/default/isc-dhcp-server
+```
+
+---
+
+## 55. Steg 6: TFTP setup
+```bash
+mkdir -p /var/lib/tftpboot/{pxelinux.cfg,efi,winpe}
+
+# BIOS boot
+cp /usr/lib/PXELINUX/pxelinux.0 /var/lib/tftpboot/
+cp /usr/lib/syslinux/modules/bios/*.c32 /var/lib/tftpboot/
+
+# UEFI boot
+cp /usr/lib/syslinux/modules/efi64/*.c32 /var/lib/tftpboot/efi/ 2>/dev/null || true
+```
+
+---
+
+## 56. Steg 7: Samba share för Windows-filer
+```bash
+mkdir -p /srv/windows/{iso,winpe}
+
+cat > /etc/samba/smb.conf << 'EOF'
+[global]
+   workgroup = LAB3
+   server string = PXE-Server-B
+   security = user
+   map to guest = Bad User
+   guest account = nobody
+
+[windows]
+   path = /srv/windows
+   browseable = yes
+   read only = yes
+   guest ok = yes
+EOF
+
+systemctl enable smbd
+systemctl restart smbd
+```
