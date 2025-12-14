@@ -4034,3 +4034,137 @@ echo "10.0.0.10 puppet-master-1.lab3.local puppet-master-1 puppet" >> /etc/hosts
 ```
 
 **Förväntat resultat:** `Applied catalog in X.XX seconds`
+## 39. RDP-test från Branch A till DC
+
+### 39.1 Förutsättningar
+
+- Thin-Client-A registrerad i Puppet
+- Terminal-1 med XRDP installerat
+- VRF route leaking konfigurerat på CE-DC
+
+---
+
+## 40. Del 1: Routing-fix på Thin-Client-A
+
+Thin-client-a saknade routes till SERVICES-nätet.
+
+### 40.1 Temporära routes
+```bash
+ip route add 10.10.0.0/24 via 10.20.1.1
+ip route add 10.20.2.0/24 via 10.20.1.1
+```
+
+### 40.2 Permanent nätverkskonfiguration
+```bash
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+auto ens3
+iface ens3 inet static
+    address 10.20.1.20
+    netmask 255.255.255.0
+    up ip route add 10.0.0.0/24 via 10.20.1.1 || true
+    up ip route add 10.10.0.0/24 via 10.20.1.1 || true
+    up ip route add 10.20.2.0/24 via 10.20.1.1 || true
+
+auto ens4
+iface ens4 inet dhcp
+EOF
+```
+
+---
+
+## 41. Del 2: Installera grafisk miljö på Thin-Client-A
+```bash
+apt install -y xorg xinit openbox freerdp2-x11
+startx &
+```
+
+---
+
+## 42. Del 3: Skapa användare på Terminal-1
+```bash
+# Sätt lösenord för user01
+echo "user01:123" | chpasswd
+```
+
+---
+
+## 43. Del 4: Testa RDP-anslutning
+
+Från thin-client-a (i grafisk miljö):
+```bash
+xfreerdp /v:10.10.0.31 /u:user01 /p:123 /cert:ignore
+```
+
+**Resultat:** RDP-session öppnas till Terminal-1 ✅
+
+---
+
+## 44. Verifierad trafikväg
+```
+Thin-Client-A (10.20.1.20)
+        │
+        ▼
+     CE-A (10.20.1.1)
+        │
+        ▼ BGP (AS65000 → AS65001)
+     PE-A (192.168.101.2)
+        │
+        ▼ iBGP
+     PE1 (192.168.100.2)
+        │
+        ▼ BGP (AS65001 → AS65000)
+     CE-DC (192.168.100.1)
+        │
+        ▼ VRF Route Leaking (default → SERVICES)
+     SERVICES VRF (10.10.0.1)
+        │
+        ▼
+   Terminal-1 (10.10.0.31)
+```
+## 45. Skapa användare på Terminal-1 (user02-user20)
+
+### 45.1 Skapa återstående användare
+```bash
+for i in $(seq -w 2 20); do
+    useradd -m "user$i" 2>/dev/null
+    echo "user$i:123" | chpasswd
+done
+echo "Klart! 19 användare skapade (user02-user20)"
+```
+
+**Output:** `Klart! 19 användare skapade (user02-user20)`
+
+### 45.2 Verifiera användare
+```bash
+cat /etc/passwd | grep user
+```
+
+**Resultat:**
+
+| Användare | UID | Hemkatalog |
+|-----------|-----|------------|
+| user01 | 1002 | /srv/nfs/home/user01 |
+| user02 | 1003 | /srv/nfs/home/user02 |
+| user03 | 1004 | /srv/nfs/home/user03 |
+| user04 | 1005 | /srv/nfs/home/user04 |
+| user05 | 1006 | /srv/nfs/home/user05 |
+| user06 | 1007 | /srv/nfs/home/user06 |
+| user07 | 1008 | /srv/nfs/home/user07 |
+| user08 | 1009 | /srv/nfs/home/user08 |
+| user09 | 1010 | /srv/nfs/home/user09 |
+| user10 | 1011 | /srv/nfs/home/user10 |
+| user11 | 1012 | /srv/nfs/home/user11 |
+| user12 | 1013 | /srv/nfs/home/user12 |
+| user13 | 1014 | /srv/nfs/home/user13 |
+| user14 | 1015 | /srv/nfs/home/user14 |
+| user15 | 1016 | /srv/nfs/home/user15 |
+| user16 | 1017 | /srv/nfs/home/user16 |
+| user17 | 1018 | /srv/nfs/home/user17 |
+| user18 | 1019 | /srv/nfs/home/user18 |
+| user19 | 1020 | /srv/nfs/home/user19 |
+| user20 | 1021 | /srv/nfs/home/user20 |
+
+**Totalt:** 20 användare (user01-user20) med lösenord `123`
