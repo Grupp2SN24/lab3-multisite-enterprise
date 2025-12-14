@@ -4403,26 +4403,244 @@ cp /usr/lib/syslinux/modules/efi64/*.c32 /var/lib/tftpboot/efi/ 2>/dev/null || t
 ```
 
 ---
+## 52. Thin-Client-B - Manuell Windows-installation
 
-## 56. Steg 7: Samba share för Windows-filer
-```bash
-mkdir -p /srv/windows/{iso,winpe}
+Pga. komplexiteten med Windows PXE från Linux installeras Thin-Client-B manuellt.
 
-cat > /etc/samba/smb.conf << 'EOF'
-[global]
-   workgroup = LAB3
-   server string = PXE-Server-B
-   security = user
-   map to guest = Bad User
-   guest account = nobody
+### 52.1 Skapa VM i GNS3
 
-[windows]
-   path = /srv/windows
-   browseable = yes
-   read only = yes
-   guest ok = yes
-EOF
+| Parameter | Värde |
+|-----------|-------|
+| Template | QEMU |
+| RAM | 2048 MB |
+| Disk | 40 GB |
+| CD-ROM | Windows 10 Pro ISO |
+| NIC 1 (eth0) | LAN-SW-B |
+| NIC 2 (eth1) | NAT (för internet under installation) |
+| Boot order | CD-ROM först |
 
-systemctl enable smbd
-systemctl restart smbd
+### 52.2 Installera Windows
+
+1. Starta VM och boota från ISO
+2. Följ installationsguiden
+3. Välj "Windows 10 Pro"
+4. Skapa lokalt konto eller logga in med Microsoft-konto
+5. Vänta på att installationen slutförs
+
+### 52.3 Efter installation - byt boot order
+
+I GNS3, ändra boot order till HDD först så Windows startar från disk.
+
+---
+
+## 53. Thin-Client-B - Nätverkskonfiguration
+
+Öppna PowerShell som Administratör:
+
+### 53.1 Identifiera nätverkskort
+```powershell
+Get-NetAdapter
 ```
+
+Notera namnen (t.ex. "Ethernet" och "Ethernet 2").
+
+### 53.2 Konfigurera statisk IP på LAN-adaptern
+```powershell
+# Byt "Ethernet" till rätt adapternamn
+New-NetIPAddress -InterfaceAlias "Ethernet" -IPAddress 10.20.2.20 -PrefixLength 24 -DefaultGateway 10.20.2.1
+Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses 8.8.8.8,8.8.4.4
+```
+
+### 53.3 Lägg till hosts-entry för Puppet
+```powershell
+Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "10.0.0.10 puppet-master-1.lab3.local puppet-master-1 puppet"
+```
+
+### 53.4 Lägg till routes till andra nät
+```powershell
+route add 10.0.0.0 mask 255.255.255.0 10.20.2.1 -p
+route add 10.10.0.0 mask 255.255.255.0 10.20.2.1 -p
+route add 10.20.1.0 mask 255.255.255.0 10.20.2.1 -p
+```
+
+---
+
+## 54. Thin-Client-B - Verifiera konnektivitet
+```powershell
+# Testa gateway
+ping 10.20.2.1
+
+# Testa DC SERVICES
+ping 10.10.0.31
+
+# Testa DC MGMT 
+ping 10.0.0.10
+```
+
+---
+
+## 55. Thin-Client-B - Testa RDP till Terminal-1
+```powershell
+mstsc /v:10.10.0.31
+```
+
+Logga in med:
+
+- **Användare:** user01
+- **Lösenord:** 123
+
+✅ Om RDP fungerar är Branch B klar!
+
+---
+
+## 56. Installera Puppet Agent på Windows
+
+### 56.1 Ladda ner Puppet Agent
+```powershell
+# Ladda ner Puppet 8 agent
+Invoke-WebRequest -Uri "https://downloads.puppet.com/windows/puppet8/puppet-agent-x64-latest.msi" -OutFile "$env:TEMP\puppet-agent.msi"
+
+# Installera
+Start-Process msiexec.exe -Wait -ArgumentList "/i $env:TEMP\puppet-agent.msi /qn PUPPET_SERVER=puppet-master-1.lab3.local"
+```
+
+### 56.2 Kör Puppet agent
+```powershell
+& "C:\Program Files\Puppet Labs\Puppet\bin\puppet.bat" agent --test --waitforcert 60
+```
+
+### 56.3 På puppet-master-1 (signera certifikat)
+```bash
+/opt/puppetlabs/bin/puppetserver ca sign --certname thin-client-b
+```
+
+
+
+## 57. Thin-Client-B - Steg-för-steg konfiguration
+
+### 57.1 Steg 1: Sätt statisk IP
+```powershell
+New-NetIPAddress -InterfaceAlias "Ethernet" -IPAddress 10.20.2.20 -PrefixLength 24 -DefaultGateway 10.20.2.1
+```
+
+### 57.2 Steg 2: Lägg till routes
+```powershell
+route add 10.0.0.0 mask 255.255.255.0 10.20.2.1 -p
+route add 10.10.0.0 mask 255.255.255.0 10.20.2.1 -p
+route add 10.20.1.0 mask 255.255.255.0 10.20.2.1 -p
+```
+
+### 57.3 Steg 3: Hosts-entry
+```powershell
+Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "10.0.0.10 puppet-master-1.lab3.local puppet-master-1 puppet"
+```
+
+### 57.4 Steg 4: Testa
+```powershell
+ping 10.20.2.1
+ping 10.10.0.31
+```
+
+---
+
+## 58. BGP-fix på PE-B
+
+PE-B behöver prefix-list för att skicka DC-routes till CE-B.
+
+### 58.1 Konfigurera prefix-list och applicera
+```
+configure terminal
+
+! Skapa prefix-list för vad vi skickar UT till CE-B
+ip prefix-list TO-BRANCH-B seq 10 permit 10.0.0.0/24
+ip prefix-list TO-BRANCH-B seq 20 permit 10.10.0.0/24
+ip prefix-list TO-BRANCH-B seq 30 permit 10.20.1.0/24
+ip prefix-list TO-BRANCH-B seq 1000 deny 0.0.0.0/0 le 32
+
+router bgp 65001
+ neighbor 192.168.102.1 prefix-list TO-BRANCH-B out
+
+end
+write memory
+```
+
+### 58.2 Verifiera
+```
+clear ip bgp 192.168.102.1 soft out
+show ip bgp neighbors 192.168.102.1 advertised-routes
+```
+
+---
+
+## 59. BGP-fix på CE-B (allowas-in)
+
+Samma fix som CE-A behövde för att ta emot routes från DC (samma AS 65000).
+
+### 59.1 Konfigurera allowas-in
+```
+configure terminal
+
+router bgp 65000
+ neighbor 192.168.102.2 allowas-in 2
+
+end
+write memory
+```
+
+### 59.2 Verifiera
+```
+clear ip bgp 192.168.102.2 soft in
+show ip bgp
+show ip route
+```
+
+### 59.3 Testa från Windows
+```powershell
+ping 10.10.0.31
+```
+
+---
+
+## 60. Installera Puppet Agent på Windows
+
+### 60.1 Ladda ner och installera
+```powershell
+# Ladda ner
+Invoke-WebRequest -Uri "https://downloads.puppet.com/windows/puppet8/puppet-agent-x64-latest.msi" -OutFile "$env:TEMP\puppet-agent.msi"
+
+# Installera
+Start-Process msiexec.exe -Wait -ArgumentList "/i $env:TEMP\puppet-agent.msi /qn PUPPET_SERVER=puppet-master-1.lab3.local"
+```
+
+---
+
+## 61. Testa RDP från Windows
+
+### 61.1 Öppna Remote Desktop
+
+Tryck `Win + R` och skriv `mstsc`.
+
+### 61.2 RDP-inställningar
+
+Skriv i "Computer"-fältet: `10.10.0.31`
+
+### 61.3 Logga in
+
+Klicka **Connect**, sedan logga in med:
+
+- **User name:** user01
+- **Password:** 123
+
+---
+
+## 62. Nödvändiga maskiner för RDP-test
+
+| Maskin | Varför |
+|--------|--------|
+| Thin-Client-B | Din klient |
+| CE-B | Gateway Branch B |
+| PE-B | Provider edge |
+| PE2 | Provider core |
+| CE-DC | DC gateway |
+| SERVICES-SW | Switch till terminal |
+| Terminal-1 | RDP-mål |
