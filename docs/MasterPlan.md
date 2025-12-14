@@ -4730,3 +4730,92 @@ cat /var/log/remote/CE-DC/*.log
 ```
 
 **Resultat:** CE-DC skickar loggar till puppet-master-1 och du kan se config-ändringar i realtid.
+
+
+## 63. Registrera Windows-klient med Puppet
+
+### 63.1 Kör Puppet agent på Windows
+```powershell
+& "C:\Program Files\Puppet Labs\Puppet\bin\puppet.bat" agent --test --waitforcert 60
+```
+
+### 63.2 På puppet-master-1 (signera certifikat)
+```bash
+/opt/puppetlabs/bin/puppetserver ca list
+/opt/puppetlabs/bin/puppetserver ca sign --certname desktop-2ss1f9m
+```
+
+### 63.3 Verifiera registrering på Windows
+```powershell
+& "C:\Program Files\Puppet Labs\Puppet\bin\puppet.bat" agent --test
+```
+
+---
+
+## 64. Foreman Web UI
+
+### 64.1 Åtkomst
+
+URL är din NAT (ens5) IP på puppet-master-1, t.ex: `https://192.168.122.130`
+
+### 64.2 Logga in
+
+- **User:** admin
+- **Password:** Labpass123!
+
+**OBS:** Om du har missat någon klient, lägg in den via kommando eller skapa skript som lägger in dem med SSH.
+
+---
+
+## 65. Syslog - Centraliserad loggning
+
+### 65.1 Konfigurera puppet-master-1 att ta emot loggar
+```bash
+# Aktivera rsyslog att ta emot loggar
+cat >> /etc/rsyslog.conf << 'EOF'
+
+# Ta emot loggar via UDP
+module(load="imudp")
+input(type="imudp" port="514")
+
+# Spara remote loggar
+template(name="RemoteLogs" type="string" string="/var/log/remote/%HOSTNAME%/%PROGRAMNAME%.log")
+*.* ?RemoteLogs
+EOF
+
+mkdir -p /var/log/remote
+systemctl restart rsyslog
+```
+
+### 65.2 Konfigurera CE-DC att skicka loggar (Arista)
+```
+configure terminal
+logging host 10.0.0.10
+logging source-interface Loopback0
+end
+write
+```
+
+### 65.3 Trigga en logg (ändra hostname temporärt)
+```
+configure terminal
+hostname CE-DC
+end
+```
+
+### 65.4 Verifiera på puppet-master-1
+```bash
+# Kolla att mappen skapats
+ls -la /var/log/remote/
+
+# Kolla vad som finns inuti
+ls -la /var/log/remote/CE-DC/
+
+# Läs loggarna
+cat /var/log/remote/CE-DC/*.log
+```
+
+**Resultat:** CE-DC skickar loggar till puppet-master-1 och du kan se config-ändringar i realtid.
+
+
+### KLAAAAAAAART :)
