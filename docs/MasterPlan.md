@@ -3882,3 +3882,155 @@ EOF
 **Vid nätverksval under installation:** Välj **ens3** (den som är kopplad till LAN-SW-A).
 
 ---
+
+## 35. Fas 5: Branch A - Thin-Client Konfiguration
+
+### 35.1 Översikt
+
+Denna sektion beskriver konfigurationen av Branch A thin-client, inklusive nödvändiga route leaking-uppdateringar på CE-DC och puppet-master-1 för att möjliggöra kommunikation mellan alla VRFs.
+
+| Komponent | IP | Ändring |
+|-----------|-----|---------|
+| CE-DC | - | Route leaking för branch-nät |
+| puppet-master-1 | 10.0.0.10 | Routes till branch-nät, RAM ökat till 4GB |
+| thin-client-a | 10.20.1.20 | Puppet agent registrering |
+
+---
+
+## 36. Del 1: CE-DC VRF Route Leaking (Utökad)
+
+På CE-DC (Arista) behöver vi aktivera route leaking så att branch-näten (10.20.1.0/24, 10.20.2.0/24) blir tillgängliga i MGMT och SERVICES VRF.
+
+### 36.1 Konfigurera prefix-lists och route-maps
+```
+configure terminal
+
+ip prefix-list BRANCH-ROUTES seq 10 permit 10.20.1.0/24
+ip prefix-list BRANCH-ROUTES seq 20 permit 10.20.2.0/24
+ip prefix-list MGMT-ROUTES seq 10 permit 10.0.0.0/24
+ip prefix-list SERVICES-ROUTES seq 10 permit 10.10.0.0/24
+
+route-map LEAK-BRANCHES permit 10
+   match ip address prefix-list BRANCH-ROUTES
+
+route-map LEAK-MGMT permit 10
+   match ip address prefix-list MGMT-ROUTES
+
+route-map LEAK-SERVICES permit 10
+   match ip address prefix-list SERVICES-ROUTES
+```
+
+### 36.2 Konfigurera VRF route leaking
+```
+router general
+   vrf SERVICES
+      leak routes source-vrf default subscribe-policy LEAK-BRANCHES
+   vrf MGMT
+      leak routes source-vrf default subscribe-policy LEAK-BRANCHES
+   vrf default
+      leak routes source-vrf MGMT subscribe-policy LEAK-MGMT
+      leak routes source-vrf SERVICES subscribe-policy LEAK-SERVICES
+
+end
+write
+```
+
+---
+
+## 37. Del 2: Puppet-Master-1 Routing (Uppdaterad)
+
+På puppet-master-1 behöver vi lägga till routes till branch-näten.
+
+### 37.1 Temporära routes (för omedelbar effekt)
+```bash
+ip route add 10.20.1.0/24 via 10.0.0.1
+ip route add 10.20.2.0/24 via 10.0.0.1
+```
+
+### 37.2 Permanent nätverkskonfiguration
+```bash
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+auto ens4
+iface ens4 inet static
+    address 10.0.0.10
+    netmask 255.255.255.0
+    gateway 10.0.0.1
+    up ip route add 10.10.0.0/24 via 10.0.0.1 || true
+    up ip route add 10.20.1.0/24 via 10.0.0.1 || true
+    up ip route add 10.20.2.0/24 via 10.0.0.1 || true
+
+auto ens5
+iface ens5 inet dhcp
+EOF
+```
+
+**OBS:** RAM ökades till 4GB på puppet-master-1 VM pga OOM (Out of Memory) problem med puppetserver.
+
+---
+
+## 38. Del 3: Thin-Client-A Konfiguration (efter PXE-installation)
+
+### 38.1 Nätverkskonfiguration (dual-NIC)
+```bash
+# Aktivera NAT-interface för internetåtkomst
+ip link set ens4 up
+dhclient ens4
+
+# Permanent nätverksinställning
+cat > /etc/network/interfaces << 'EOF'
+auto lo
+iface lo inet loopback
+
+auto ens3
+iface ens3 inet static
+    address 10.20.1.20
+    netmask 255.255.255.0
+    up ip route add 10.0.0.0/24 via 10.20.1.1 || true
+    up ip route add 10.10.0.0/24 via 10.20.1.1 || true
+    up ip route add 10.20.2.0/24 via 10.20.1.1 || true
+
+auto ens4
+iface ens4 inet dhcp
+EOF
+```
+
+### 38.2 Puppet Agent Installation
+```bash
+cd /tmp
+wget https://apt.puppet.com/puppet8-release-bookworm.deb
+dpkg -i puppet8-release-bookworm.deb
+apt update
+apt install -y puppet-agent
+```
+
+### 38.3 Puppet Agent Konfiguration
+```bash
+cat > /etc/puppetlabs/puppet/puppet.conf << 'EOF'
+[main]
+server = puppet-master-1.lab3.local
+EOF
+
+echo "10.0.0.10 puppet-master-1.lab3.local puppet-master-1 puppet" >> /etc/hosts
+```
+
+### 38.4 Registrera med Puppet Master
+
+**På thin-client-a:**
+```bash
+/opt/puppetlabs/bin/puppet agent --test --waitforcert 60
+```
+
+**På puppet-master-1:**
+```bash
+/opt/puppetlabs/bin/puppetserver ca sign --all
+```
+
+### 38.5 Verifiera registrering
+```bash
+/opt/puppetlabs/bin/puppet agent --test
+```
+
+**Förväntat resultat:** `Applied catalog in X.XX seconds`
