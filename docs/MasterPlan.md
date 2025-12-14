@@ -4244,3 +4244,19 @@ grep user /etc/passwd | wc -l
 - NFS-mount visas från `10.10.0.40:/srv/nfs/home`
 - user01 har hemkatalog `/srv/nfs/home/user01`
 - Totalt 20 användare
+
+## 48. Testa NFS-delning mellan terminalservrar
+
+### 48.1 Skapa testfil på terminal-1
+```bash
+su - user01 -c "echo 'Hej från terminal-1' > ~/testfil.txt"
+```
+
+### 48.2 Läs testfil från terminal-2
+```bash
+su - user01 -c "cat ~/testfil.txt"
+```
+
+**Förväntat resultat:** `Hej från terminal-1`
+
+Detta bekräftar att NFS-delningen fungerar korrekt och att användare har samma hemkatalog på båda terminalservrarna.
