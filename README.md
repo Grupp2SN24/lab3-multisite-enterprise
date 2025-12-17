@@ -47,7 +47,7 @@ Bygga ett multi-site enterprise-nätverk med:
 - **Strategi:** Bygga i faser, pausa enheter mellan faser
 
 ---
-## ![Nätverksöversikt](../bild.png)
+## ![Nätverksöversikt](./bild.png)
 ---
 ## 2. Komplett Nätverkstopologi
 
