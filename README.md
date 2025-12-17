@@ -17,6 +17,11 @@
 
 ---
 
+---
+## Author: Tarok, Fredrik, Asal, Chineyne & Anton.
+
+---
+
 ## 1. Projektöversikt
 
 ### 1.1 Syfte
