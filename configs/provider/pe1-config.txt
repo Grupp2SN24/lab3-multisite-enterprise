@@ -1,62 +1,197 @@
-! PE1 - Provider Edge Router 1
-! Last updated: 2025-12-07
-! Features: OSPF, iBGP full-mesh, prefix-list, BFD, max-prefix
+PE-1 Running config:
+
+Current configuration : 4705 bytes
+!
+version 15.9
+service timestamps debug datetime msec
+service timestamps log datetime msec
+no service password-encryption
 !
 hostname PE1
 !
-bfd slow-timers 2000
+boot-start-marker
+boot-end-marker
+!
+!
+!
+no aaa new-model
+!
+!
+!
+mmi polling-interval 60
+no mmi auto-configure
+no mmi pvc
+mmi snmp-timeout 180
+!         
+!
+!
+!
+!
+no ip icmp rate-limit unreachable
+!
+!
+!
+!
+!
+!
+no ip domain lookup
+ip cef
+no ipv6 cef
+!
+multilink bundle-name authenticated
+!
+!
+!
+!
+!
+redundancy
+!         
+no cdp log mismatch duplex
+!
+ip tcp synwait-time 5
+! 
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
+!
 !
 interface Loopback0
  ip address 2.2.2.1 255.255.255.255
 !
 interface GigabitEthernet0/0
- description Link to CE-DC
+ description Link to CE-DC (ACTIVE)
  ip address 192.168.100.2 255.255.255.252
- bfd interval 300 min_rx 300 multiplier 3
+ ip nat inside
+ ip virtual-reassembly in
+ duplex auto
+ speed auto
+ media-type rj45
 !
 interface GigabitEthernet0/1
- description Link to PE-2
+ description Link to PE2
  ip address 10.255.0.1 255.255.255.252
+ ip nat inside
+ ip virtual-reassembly in
+ duplex auto
+ speed auto
+ media-type rj45
 !
 interface GigabitEthernet0/2
  description Link to PE-A
  ip address 10.255.0.5 255.255.255.252
+ ip nat inside
+ ip virtual-reassembly in
+ duplex auto
+ speed auto
+ media-type rj45
+!         
+interface GigabitEthernet0/3
+ ip address dhcp
+ ip nat outside
+ ip virtual-reassembly in
+ duplex auto
+ speed auto
+ media-type rj45
 !
 router ospf 1
  router-id 2.2.2.1
+ passive-interface default
+ no passive-interface GigabitEthernet0/0
+ no passive-interface GigabitEthernet0/1
+ no passive-interface GigabitEthernet0/2
  network 2.2.2.1 0.0.0.0 area 0
  network 10.255.0.0 0.0.0.3 area 0
  network 10.255.0.4 0.0.0.3 area 0
+ network 192.168.100.0 0.0.0.3 area 0
+ default-information originate
 !
 router bgp 65001
  bgp router-id 2.2.2.1
  bgp log-neighbor-changes
  neighbor 2.2.2.2 remote-as 65001
  neighbor 2.2.2.2 update-source Loopback0
+ neighbor 2.2.2.2 next-hop-self
  neighbor 2.2.2.10 remote-as 65001
  neighbor 2.2.2.10 update-source Loopback0
+ neighbor 2.2.2.10 next-hop-self
  neighbor 2.2.2.11 remote-as 65001
  neighbor 2.2.2.11 update-source Loopback0
+ neighbor 2.2.2.11 next-hop-self
  neighbor 192.168.100.1 remote-as 65000
- neighbor 192.168.100.1 description CE-DC
- neighbor 192.168.100.1 fall-over bfd
- !
- address-family ipv4
-  neighbor 2.2.2.2 activate
-  neighbor 2.2.2.2 next-hop-self
-  neighbor 2.2.2.10 activate
-  neighbor 2.2.2.10 next-hop-self
-  neighbor 2.2.2.11 activate
-  neighbor 2.2.2.11 next-hop-self
-  neighbor 192.168.100.1 activate
-  neighbor 192.168.100.1 prefix-list FROM-DC in
-  neighbor 192.168.100.1 maximum-prefix 20 80 warning-only
- exit-address-family
+ neighbor 192.168.100.1 description CE-DC-PRIMARY
+ neighbor 192.168.100.1 prefix-list FROM-DC in
+ neighbor 192.168.100.1 maximum-prefix 100 80 warning-only
 !
-! === PREFIX LISTS ===
+ip forward-protocol nd
+!
+!
+no ip http server
+no ip http secure-server
+ip nat inside source list 1 interface GigabitEthernet0/3 overload
+ip route 192.168.101.0 255.255.255.252 2.2.2.10
+ip route 0.0.0.0 0.0.0.0 dhcp
+!         
+!
 ip prefix-list FROM-DC seq 10 permit 10.0.0.0/24
 ip prefix-list FROM-DC seq 20 permit 10.10.0.0/24
-ip prefix-list FROM-DC seq 30 permit 10.20.0.0/24
 ip prefix-list FROM-DC seq 1000 deny 0.0.0.0/0 le 32
+ipv6 ioam timestamp
+!
+!
+access-list 1 permit any
+!
+control-plane
+!
+banner exec ^C
+**************************************************************************
+* IOSv is strictly limited to use for evaluation, demonstration and IOS  *
+* education. IOSv is provided as-is and is not supported by Cisco's      *
+* Technical Advisory Center. Any use or disclosure, in whole or in part, *
+* of the IOSv Software or Documentation to any third party for any       *
+* purposes is expressly prohibited except as otherwise authorized by     *
+* Cisco in writing.                                                      *
+**************************************************************************^C
+banner incoming ^C
+**************************************************************************
+* IOSv is strictly limited to use for evaluation, demonstration and IOS  *
+* education. IOSv is provided as-is and is not supported by Cisco's      *
+* Technical Advisory Center. Any use or disclosure, in whole or in part, *
+* of the IOSv Software or Documentation to any third party for any       *
+* purposes is expressly prohibited except as otherwise authorized by     *
+* Cisco in writing.                                                      *
+**************************************************************************^C
+banner login ^C
+**************************************************************************
+* IOSv is strictly limited to use for evaluation, demonstration and IOS  *
+* education. IOSv is provided as-is and is not supported by Cisco's      *
+* Technical Advisory Center. Any use or disclosure, in whole or in part, *
+* of the IOSv Software or Documentation to any third party for any       *
+* purposes is expressly prohibited except as otherwise authorized by     *
+* Cisco in writing.                                                      *
+**************************************************************************^C
+!
+line con 0
+ exec-timeout 0 0
+ privilege level 15
+ logging synchronous
+line aux 0
+ exec-timeout 0 0
+ privilege level 15
+ logging synchronous
+line vty 0 4
+ login
+ transport input none
+!
+no scheduler allocate
 !
 end
+
+PE1#
+

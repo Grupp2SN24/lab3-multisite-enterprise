@@ -47,7 +47,7 @@ Bygga ett multi-site enterprise-nätverk med:
 - **Strategi:** Bygga i faser, pausa enheter mellan faser
 
 ---
-### ![Nätverksöversikt](./billd.png)
+### ![Nätverksöversikt](./bild.png)
 ---
 ## 2. Komplett Nätverkstopologi
 
@@ -4823,16 +4823,17 @@ cat /var/log/remote/CE-DC/*.log
 
 **Resultat:** CE-DC skickar loggar till puppet-master-1 och du kan se config-ändringar i realtid.
 
+
 ---
- 
+
 ## 66. Ändringslogg — Uppdateringar av Fredrik
- 
+
 Efter initial feedback gjordes följande ändringar på det körande labbet. Nedan dokumenteras exakt vad som skiljer sig från den ursprungliga konfigurationen ovan.
- 
+
 ### 66.1 PE1 & PE2 — NAT/Internetåtkomst via ISP
- 
+
 Båda PE-routrarna fick en ny **GigabitEthernet0/3** ansluten till var sin ISP-NAT-cloud för att ge hela nätverket internetåtkomst.
- 
+
 **Tillagd konfiguration på PE1:**
 ```
 ! Nytt interface mot ISP (DHCP)
@@ -4841,7 +4842,7 @@ interface GigabitEthernet0/3
  ip nat outside
  ip virtual-reassembly in
  no shutdown
- 
+
 ! NAT inside på alla interna interface
 interface GigabitEthernet0/0
  ip nat inside
@@ -4849,18 +4850,18 @@ interface GigabitEthernet0/1
  ip nat inside
 interface GigabitEthernet0/2
  ip nat inside
- 
+
 ! NAT overload-regel
 ip nat inside source list 1 interface GigabitEthernet0/3 overload
 access-list 1 permit any
- 
+
 ! Default route via ISP
 ip route 0.0.0.0 0.0.0.0 dhcp
- 
+
 ! Statisk route till CE-A peering-nät via PE-A
 ip route 192.168.101.0 255.255.255.252 2.2.2.10
 ```
- 
+
 **Tillagd konfiguration på PE2:**
 ```
 ! Nytt interface mot ISP (DHCP)
@@ -4869,7 +4870,7 @@ interface GigabitEthernet0/3
  ip nat outside
  ip virtual-reassembly in
  no shutdown
- 
+
 ! NAT inside på alla interna interface
 interface GigabitEthernet0/0
  ip nat inside
@@ -4877,19 +4878,19 @@ interface GigabitEthernet0/1
  ip nat inside
 interface GigabitEthernet0/2
  ip nat inside
- 
+
 ! NAT overload-regel
 ip nat inside source list 1 interface GigabitEthernet0/3 overload
 access-list 1 permit any
- 
+
 ! Default route via ISP
 ip route 0.0.0.0 0.0.0.0 dhcp
 ```
- 
+
 ### 66.2 OSPF utökat på alla routrar
- 
+
 OSPF utökades från att bara köras inom provider-core till att även köras på alla WAN-länkar mellan PE och CE. Detta ger bättre konvergens och gör att default route kan distribueras via OSPF.
- 
+
 **PE1 — OSPF-tillägg:**
 ```
 router ospf 1
@@ -4897,7 +4898,7 @@ router ospf 1
  network 192.168.100.0 0.0.0.3 area 0
  default-information originate
 ```
- 
+
 **PE2 — OSPF-tillägg:**
 ```
 router ospf 1
@@ -4905,35 +4906,35 @@ router ospf 1
  network 192.168.100.4 0.0.0.3 area 0
  default-information originate
 ```
- 
+
 **PE-A — OSPF-tillägg:**
 ```
 router ospf 1
  no passive-interface GigabitEthernet0/0
  network 192.168.101.0 0.0.0.3 area 0
 ```
- 
+
 **PE-B — OSPF-tillägg:**
 ```
 router ospf 1
  no passive-interface GigabitEthernet0/0
  network 192.168.102.0 0.0.0.3 area 0
 ```
- 
+
 **CE-A — OSPF tillagt (nytt):**
 ```
 router ospf 1
  router-id 1.1.1.10
  network 192.168.101.0 0.0.0.3 area 0
 ```
- 
+
 **CE-B — OSPF tillagt (nytt):**
 ```
 router ospf 1
  router-id 1.1.1.11
  network 192.168.102.0 0.0.0.3 area 0
 ```
- 
+
 **CE-DC — OSPF tillagt (nytt):**
 ```
 router ospf 1
@@ -4942,55 +4943,55 @@ router ospf 1
    network 192.168.100.4/30 area 0.0.0.0
    max-lsa 12000
 ```
- 
+
 ### 66.3 Default routes tillagda
- 
+
 Statiska default routes lades till på PE-A, PE-B, CE-A och CE-B för att säkerställa internet-nåbarhet genom hela topologin.
- 
+
 ```
 ! PE-A
 ip route 0.0.0.0 0.0.0.0 10.255.0.5
- 
+
 ! PE-B
 ip route 0.0.0.0 0.0.0.0 10.255.0.9
- 
+
 ! CE-A
 ip route 0.0.0.0 0.0.0.0 192.168.101.2
- 
+
 ! CE-B
 ip route 0.0.0.0 0.0.0.0 192.168.102.2
 ```
- 
+
 ### 66.4 CE-DC — BGP-uppdateringar
- 
+
 Följande ändringar gjordes på CE-DC:s BGP-konfiguration:
- 
+
 - **`allowas-in 2`** lades till på båda PE-neighbors (PE1 och PE2)
 - **`network 10.20.2.0/24`** lades till i address-family ipv4 (annonsera Branch B:s nät)
 - **Deny-all** (`seq 1000 deny 0.0.0.0/0 le 32`) lades till explicit i slutet av `ACCEPT-FROM-PROVIDER` prefix-list
- 
+
 ```
 router bgp 65000
    neighbor 192.168.100.2 allowas-in 2
    neighbor 192.168.100.6 allowas-in 2
- 
+
    address-family ipv4
       network 10.20.2.0/24
- 
+
 ip prefix-list ACCEPT-FROM-PROVIDER seq 1000 deny 0.0.0.0/0 le 32
 ```
- 
+
 ### 66.5 CE-DC — Utökad VRF Route Leaking
- 
+
 VRF-leakingen utökades så att MGMT och SERVICES kan nå varandra direkt (inte bara branch-näten):
- 
+
 ```
 ! Ny route-map för full leaking mellan MGMT och SERVICES
 route-map RM-LEAK-ALL permit 10
- 
+
 ! Default route läcks nu också till branch-VRFs
 ip prefix-list BRANCH-ROUTES seq 30 permit 0.0.0.0/0
- 
+
 ! MGMT ↔ SERVICES cross-leaking
 router general
    vrf MGMT
@@ -4998,36 +4999,36 @@ router general
    vrf SERVICES
       leak routes source-vrf MGMT subscribe-policy RM-LEAK-ALL
 ```
- 
+
 ### 66.6 MGMT-SW & SERVICES-SW — Management-IP och routing
- 
+
 Switcharna fick management-IP:er och default routes så att de kan nås via nätverket:
- 
+
 **MGMT-SW:**
 ```
 interface Vlan1
  ip address 10.0.0.2 255.255.255.0
  no shutdown
- 
+
 ip default-gateway 10.0.0.1
 ip route 0.0.0.0 0.0.0.0 10.0.0.1
- 
+
 ! Spanning-tree portfast edge på alla access-portar
 interface range GigabitEthernet0/0 - 3
  spanning-tree portfast edge
 ```
- 
+
 **SERVICES-SW:**
 ```
 interface Vlan1
  ip address 10.10.0.2 255.255.255.0
  no shutdown
- 
+
 ip route 0.0.0.0 0.0.0.0 10.10.0.1
 ```
- 
+
 ### 66.7 Sammanfattning av alla ändringar per enhet
- 
+
 | Enhet | Ändring |
 |-------|---------|
 | PE1 | NAT (Gi0/3 → ISP), OSPF utökat mot CE-DC, default-information originate, default route via DHCP |
@@ -5039,5 +5040,7 @@ ip route 0.0.0.0 0.0.0.0 10.10.0.1
 | CE-B | OSPF tillagt, statisk default route via PE-B |
 | MGMT-SW | Vlan1 IP 10.0.0.2, default gateway/route, portfast edge |
 | SERVICES-SW | Vlan1 IP 10.10.0.2, default route |
- 
+
 ---
+
+### KLAAAAAAAART :)
