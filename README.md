@@ -14,7 +14,7 @@
 8. [Observability](#8-observability)
 9. [Byggordning (Faser)](#9-byggordning-faser)
 10. [Fas 1: Provider Core - Konfigurationsguide](#10-fas-1-provider-core---konfigurationsguide)
-
+66. [Ändringslogg — Fredriks uppdateringar](#66-ändringslogg--uppdateringar-av-fredrik)
 ---
 
 ---
